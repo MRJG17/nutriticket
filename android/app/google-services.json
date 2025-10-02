@@ -1,0 +1,48 @@
+{
+  "project_info": {
+    "project_number": "307770461989",
+    "project_id": "nutriticket-app",
+    "storage_bucket": "nutriticket-app.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:307770461989:android:59de900f32dba4c9a394cc",
+        "android_client_info": {
+          "package_name": "com.example.nutriticket"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBZdAB5Db2Ay82woyG4HH5_npMcr4D1p_E"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:307770461989:android:d0fd16a01f5fdb1fa394cc",
+        "android_client_info": {
+          "package_name": "com.example.nutriticket_app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBZdAB5Db2Ay82woyG4HH5_npMcr4D1p_E"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
