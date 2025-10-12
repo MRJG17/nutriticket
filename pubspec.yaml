@@ -1,41 +1,46 @@
 name: nutriticket
 description: "A new Flutter project."
+
 publish_to: 'none'
 
 version: 1.0.0+1
 
 environment:
-  sdk: '>=3.2.3 <4.0.0' # Es buena práctica definir un rango
+  sdk: '>=3.2.3 <4.0.0'
 
 dependencies:
   flutter:
+    sdk: flutter
+  
+  flutter_localizations:
     sdk: flutter
 
   image_picker: ^1.1.0
   http: ^1.2.0
   mime: ^1.0.5
-
-  flutter_localizations:
-    sdk: flutter
-
   cupertino_icons: ^1.0.8
-
-  # --- VERSIONES CORREGIDAS PARA COMPATIBILIDAD ---
-  firebase_core: ^2.31.0
-  firebase_auth: ^4.19.4
-  cloud_firestore: ^4.17.2
+  firebase_core: ^2.25.4
+  firebase_auth: ^4.17.4
+  cloud_firestore: ^4.15.4
 
 dev_dependencies:
   flutter_test:
     sdk: flutter
-  flutter_lints: ^3.0.1 # Versión actualizada
+  
+  flutter_launcher_icons: ^0.13.1
+
+  flutter_lints: ^3.0.1
 
 flutter:
   uses-material-design: true
 
-  # --- LÍNEAS AÑADIDAS ---
-  # Esta sección le dice a Flutter que incluya tus imágenes.
-  # La indentación (los espacios) es crucial.
   assets:
     - assets/images/
+
+flutter_launcher_icons:
+  android: true
+  ios: true
+  image_path: "assets/images/logo.png"
+  # ✅ LÍNEA AÑADIDA: Elimina la transparencia solo para los íconos de iOS
+  remove_alpha_ios: true
 
