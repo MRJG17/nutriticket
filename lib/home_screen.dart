@@ -3,14 +3,20 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:image_picker/image_picker.dart'; 
+import 'package:image_picker/image_picker.dart';
 
 // ⭐️ NUEVAS IMPORTACIONES PARA GEMINI ⭐️
 import 'package:http/http.dart' as http;
 import 'dart:convert';
-import 'package:mime/mime.dart'; 
+import 'package:mime/mime.dart';
 import 'package:nutriticket/main.dart'; // Para AuthWrapper
 import 'package:nutriticket/receipt_item.dart'; // Para el modelo de datos
+
+// ✅ INICIO DE LA MODIFICACIÓN: Importamos las pantallas reales
+import 'perfil_screen.dart';
+import 'recetas_screen.dart';
+import 'ia_nutricional_screen.dart';
+// ✅ FIN DE LA MODIFICACIÓN
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -26,23 +32,26 @@ class _HomeScreenState extends State<HomeScreen> {
   bool _isLoading = false;
   List<ReceiptItem> _receiptItems = [];
   String? _errorMessage;
-  
+
   // ************************************************************
   // ** PASO CLAVE: DEBES INSERTAR TU CLAVE DE API AQUÍ **
   // ************************************************************
   // ⚠️ ¡REEMPLAZA "TU_CLAVE_AQUI" con tu clave real de la API de Gemini!
-  final String apiKey = "AIzaSyBYS_97Q3VtHrdjpo9thLPSyNooICgYzEI"; 
-  final String apiUrl = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-05-20:generateContent";
+  final String apiKey = "AIzaSyBYS_97Q3VtHrdjpo9thLPSyNooICgYzEI";
+  final String apiUrl =
+      "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-05-20:generateContent";
 
+  // ✅ INICIO DE LA MODIFICACIÓN: Usamos los widgets de las pantallas reales
   final List<Widget> _widgetOptions = [
-    const Center(child: Text('Inicio: Menú semanal')),
-    const Center(child: Text('Recetas')),
-    const Center(child: Text('IA Nutricional')), // Este índice es 2
-    const Center(child: Text('Perfil')), // Este índice es 3
+    const Center(child: Text('Inicio: Menú semanal')), // Pantalla de Inicio
+    const RecetasScreen(), // Pantalla de Recetas
+    const IANutricionalScreen(), // Pantalla de IA
+    const PerfilScreen(), // Pantalla de Perfil
   ];
+  // ✅ FIN DE LA MODIFICACIÓN
 
   void _onItemTapped(int index) {
-    if (index == 2) return; 
+    if (index == 2) return;
     // Ajuste de índice: Si es 3 o 4 en la barra, se mapea a 2 o 3 en _widgetOptions
     setState(() => _selectedIndex = index > 2 ? index - 1 : index);
   }
@@ -93,9 +102,9 @@ class _HomeScreenState extends State<HomeScreen> {
 
     // ⭐️ Actualiza el estado y lanza el escaneo de Gemini ⭐️
     setState(() {
-        _pickedImage = File(pickedFile.path);
-        _receiptItems = []; 
-        _errorMessage = null;
+      _pickedImage = File(pickedFile.path);
+      _receiptItems = [];
+      _errorMessage = null;
     });
     await _scanReceipt();
   }
@@ -119,24 +128,33 @@ class _HomeScreenState extends State<HomeScreen> {
 
       // ⭐️ Definición del esquema JSON para la salida estructurada ⭐️
       final responseSchema = {
-          "type": "ARRAY",
-          "items": {
-            "type": "OBJECT",
-            "properties": {
-              "item": {"type": "STRING", "description": "Nombre del producto."},
-              "price": {"type": "NUMBER", "description": "Precio unitario o total del artículo."},
-              "qty": {"type": "NUMBER", "description": "Cantidad de artículos, usa 1 por defecto."}
+        "type": "ARRAY",
+        "items": {
+          "type": "OBJECT",
+          "properties": {
+            "item": {"type": "STRING", "description": "Nombre del producto."},
+            "price": {
+              "type": "NUMBER",
+              "description": "Precio unitario o total del artículo."
             },
-            "required": ["item", "price"]
-          }
-        };
+            "qty": {
+              "type": "NUMBER",
+              "description": "Cantidad de artículos, usa 1 por defecto."
+            }
+          },
+          "required": ["item", "price"]
+        }
+      };
 
       final payload = {
         "contents": [
           {
             "role": "user",
             "parts": [
-              {"text": "Extrae la lista de productos, su precio y cantidad del ticket. Devuelve la lista como un JSON siguiendo el esquema proporcionado. Ignora líneas de impuestos, subtotales o totales."},
+              {
+                "text":
+                    "Extrae la lista de productos, su precio y cantidad del ticket. Devuelve la lista como un JSON siguiendo el esquema proporcionado. Ignora líneas de impuestos, subtotales o totales."
+              },
               {
                 "inlineData": {
                   "mimeType": mimeType,
@@ -161,19 +179,20 @@ class _HomeScreenState extends State<HomeScreen> {
       // 4. Procesamiento de la respuesta
       if (response.statusCode == 200) {
         final jsonResponse = jsonDecode(response.body);
-        final jsonText = jsonResponse['candidates'][0]['content']['parts'][0]['text'] as String;
-        
+        final jsonText = jsonResponse['candidates'][0]['content']['parts'][0]
+            ['text'] as String;
+
         final List<dynamic> parsedJsonList = jsonDecode(jsonText);
-        
+
         setState(() {
-          _receiptItems = parsedJsonList.map((item) => ReceiptItem.fromJson(item)).toList();
+          _receiptItems =
+              parsedJsonList.map((item) => ReceiptItem.fromJson(item)).toList();
         });
         if (mounted) _showResultsDialog();
-        
       } else {
-        _showError('Error en la API: ${response.statusCode}. Mensaje: ${response.body}');
+        _showError(
+            'Error en la API: ${response.statusCode}. Mensaje: ${response.body}');
       }
-
     } catch (e) {
       _showError('Ocurrió un error en el escaneo: ${e.toString()}');
     } finally {
@@ -184,8 +203,9 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   // --- 4. IMPLEMENTACIÓN DE BACKOFF (REINTENTOS) ---
-  Future<http.Response> _fetchWithExponentialBackoff(Uri uri, {String? body}) async {
-    const maxRetries = 3; 
+  Future<http.Response> _fetchWithExponentialBackoff(Uri uri,
+      {String? body}) async {
+    const maxRetries = 3;
     const initialDelay = Duration(seconds: 2);
 
     for (int i = 0; i < maxRetries; i++) {
@@ -196,7 +216,7 @@ class _HomeScreenState extends State<HomeScreen> {
           body: body,
         );
         // Si no es un error de rate limit (429), devuelve la respuesta
-        if (response.statusCode < 500 && response.statusCode != 429) { 
+        if (response.statusCode < 500 && response.statusCode != 429) {
           return response;
         }
       } catch (e) {
@@ -209,11 +229,12 @@ class _HomeScreenState extends State<HomeScreen> {
       }
     }
     // Si todos los reintentos fallan, devuelve el último error
-    return http.Response('{"error": "Tiempo de espera agotado o error de red."}', 500); 
+    return http.Response(
+        '{"error": "Tiempo de espera agotado o error de red."}', 500);
   }
 
   // --- FUNCIONES DE INTERFAZ ---
-  
+
   void _showError(String message) {
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -222,7 +243,7 @@ class _HomeScreenState extends State<HomeScreen> {
     }
     setState(() => _isLoading = false); // Asegura que se quite el indicador
   }
-  
+
   // Función para mostrar la lista de productos extraídos
   void _showResultsDialog() {
     final total = _receiptItems.fold<double>(
@@ -232,7 +253,7 @@ class _HomeScreenState extends State<HomeScreen> {
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('Productos Extraídos por IA'),
-        content: SizedBox( 
+        content: SizedBox(
           width: double.maxFinite,
           child: Column(
             mainAxisSize: MainAxisSize.min,
@@ -249,9 +270,15 @@ class _HomeScreenState extends State<HomeScreen> {
                           child: Row(
                             mainAxisAlignment: MainAxisAlignment.spaceBetween,
                             children: [
-                              Expanded(flex: 2, child: Text(item.item, style: const TextStyle(fontWeight: FontWeight.w500))),
-                              Text('${item.qty}x', style: const TextStyle(color: Colors.grey)),
-                              Text('\$${(item.price * item.qty).toStringAsFixed(2)}'),
+                              Expanded(
+                                  flex: 2,
+                                  child: Text(item.item,
+                                      style: const TextStyle(
+                                          fontWeight: FontWeight.w500))),
+                              Text('${item.qty}x',
+                                  style: const TextStyle(color: Colors.grey)),
+                              Text(
+                                  '\$${(item.price * item.qty).toStringAsFixed(2)}'),
                             ],
                           ),
                         )),
@@ -263,10 +290,14 @@ class _HomeScreenState extends State<HomeScreen> {
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  const Text('TOTAL ESTIMADO:', style: TextStyle(fontWeight: FontWeight.bold)),
+                  const Text('TOTAL ESTIMADO:',
+                      style: TextStyle(fontWeight: FontWeight.bold)),
                   Text(
                     '\$${total.toStringAsFixed(2)}',
-                    style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.redAccent),
+                    style: const TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.redAccent),
                   ),
                 ],
               ),
@@ -275,7 +306,8 @@ class _HomeScreenState extends State<HomeScreen> {
                 onPressed: () {
                   Navigator.pop(context); // Cierra el diálogo
                   // 💡 NAVEGACIÓN A LA PANTALLA DE IA NUTRICIONAL 💡
-                  _onItemTapped(2); // Selecciona el índice 2 (IA Nutricional) en la barra
+                  _onItemTapped(
+                      2); // Selecciona el índice 2 (IA Nutricional) en la barra
                 },
                 child: const Text('Analizar Nutrición y Menú'),
               )
@@ -283,7 +315,9 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cerrar'))
+          TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Cerrar'))
         ],
       ),
     );
@@ -311,7 +345,8 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
         ],
       ),
-      body: Stack( // Usamos Stack para el indicador de carga sobre la pantalla
+      body: Stack(
+        // Usamos Stack para el indicador de carga sobre la pantalla
         children: [
           _widgetOptions[_selectedIndex],
           if (_isLoading)
@@ -323,7 +358,8 @@ class _HomeScreenState extends State<HomeScreen> {
                   children: [
                     CircularProgressIndicator(color: Colors.white),
                     SizedBox(height: 10),
-                    Text('Analizando el ticket con IA...', style: TextStyle(color: Colors.white)),
+                    Text('Analizando el ticket con IA...',
+                        style: TextStyle(color: Colors.white)),
                   ],
                 ),
               ),
@@ -331,7 +367,9 @@ class _HomeScreenState extends State<HomeScreen> {
         ],
       ),
       floatingActionButton: FloatingActionButton(
-        onPressed: _isLoading ? null : _onScanPressed, // Desactiva el botón si está cargando
+        onPressed: _isLoading
+            ? null
+            : _onScanPressed, // Desactiva el botón si está cargando
         backgroundColor: Colors.lightGreen,
         foregroundColor: Colors.white,
         shape: const CircleBorder(),
@@ -347,7 +385,8 @@ class _HomeScreenState extends State<HomeScreen> {
             _buildNavItem(Icons.home, 'Inicio', 0),
             _buildNavItem(Icons.restaurant, 'Recetas', 1),
             const SizedBox(width: 48),
-            _buildNavItem(Icons.analytics, 'IA Nutricional', 3), // Índice real de la barra
+            _buildNavItem(Icons.analytics, 'IA Nutricional',
+                3), // Índice real de la barra
             _buildNavItem(Icons.person, 'Perfil', 4), // Índice real de la barra
           ],
         ),
@@ -360,7 +399,7 @@ class _HomeScreenState extends State<HomeScreen> {
     final optionIndex = itemIndex > 2 ? itemIndex - 1 : itemIndex;
     final isActive = _selectedIndex == optionIndex;
     final color = isActive ? Colors.lightGreen : Colors.grey;
-    
+
     return Expanded(
       child: InkWell(
         onTap: () => _onItemTapped(itemIndex),
