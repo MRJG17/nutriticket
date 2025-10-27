@@ -1,10 +1,9 @@
 // lib/perfil_screen.dart
 
-import 'dart:io'; // Necesario para File
+// 1. MODIFICACIÓN: Se eliminan imports que ya no se usan (dart:io y image_picker)
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:image_picker/image_picker.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:nutriticket/edit_profile_screen.dart'; // Importa la pantalla de edición
 import 'package:nutriticket/main.dart'; // Para el AuthWrapper
@@ -16,11 +15,22 @@ class PerfilScreen extends StatefulWidget {
   State<PerfilScreen> createState() => _PerfilScreenState();
 }
 
-// 1. MODIFICACIÓN: Asegúrate de que esta línea extienda "State<PerfilScreen>"
 class _PerfilScreenState extends State<PerfilScreen> {
   User? _currentUser;
   Map<String, dynamic>? _userData;
   bool _isLoading = true;
+
+  // Asegúrate que esta ruta sea la correcta en tu pubspec.yaml
+  final List<String> _avatarList = [
+    'assets/avatars/a1.png',
+    'assets/avatars/a2.png',
+    'assets/avatars/a3.png',
+    'assets/avatars/a4.png',
+    'assets/avatars/a5.png',
+    'assets/avatars/a6.png',
+    'assets/avatars/a7.png',
+    'assets/avatars/a8.png',
+  ];
 
   @override
   void initState() {
@@ -49,11 +59,9 @@ class _PerfilScreenState extends State<PerfilScreen> {
           });
         }
       } else {
-        // El documento no existe (ej. usuario recién registrado)
         if (mounted) {
           setState(() {
             _isLoading = false;
-            // Inicializar _userData vacío para evitar errores de null
             _userData = {};
           });
         }
@@ -67,63 +75,90 @@ class _PerfilScreenState extends State<PerfilScreen> {
     }
   }
 
-  Future<void> _pickAndUploadImage() async {
-    final ImagePicker picker = ImagePicker();
-    final XFile? image = await picker.pickImage(source: ImageSource.gallery);
+  // 2. MODIFICACIÓN: Se elimina la función _pickAndUploadImage()
+  // Ya no la necesitamos, la hemos borrado.
 
-    if (image == null) return;
+  void _showAvatarSelectionDialog() {
+    showDialog(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          title: const Text('Elige tu Avatar'),
+          content: SizedBox(
+            width: double.maxFinite,
+            child: GridView.builder(
+              shrinkWrap: true,
+              itemCount: _avatarList.length,
+              gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                crossAxisCount: 4,
+                crossAxisSpacing: 10,
+                mainAxisSpacing: 10,
+              ),
+              itemBuilder: (context, index) {
+                final assetPath = _avatarList[index];
+                return GestureDetector(
+                  onTap: () {
+                    Navigator.of(context).pop();
+                    _updateProfileWithAvatar(assetPath);
+                  },
+                  // 3. MODIFICACIÓN: Se añade Transform.scale para hacer "zoom"
+                  child: ClipOval(
+                    child: Transform.scale(
+                      scale:
+                          1.3, // <-- ¡Este es el "zoom"! Ajusta si es necesario
+                      child: Image.asset(
+                        assetPath,
+                        fit: BoxFit.cover,
+                        width: 60,
+                        height: 60,
+                      ),
+                    ),
+                  ),
+                );
+              },
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text('Cancelar'),
+            )
+          ],
+        );
+      },
+    );
+  }
+
+  Future<void> _updateProfileWithAvatar(String assetPath) async {
     if (_currentUser == null) return;
 
-    if (mounted) {
-      setState(() {
-        _isLoading = true; // Mostrar loading mientras se sube la imagen
-      });
-    }
+    if (mounted) setState(() => _isLoading = true);
 
     try {
-      final ref = FirebaseStorage.instance
-          .ref()
-          .child('profile_pictures')
-          .child('${_currentUser!.uid}.jpg');
-
-      await ref.putData(await image.readAsBytes(),
-          SettableMetadata(contentType: 'image/jpeg'));
-
-      final String downloadUrl = await ref.getDownloadURL();
-
-      // Usar .set con merge:true para crear o actualizar el documento
       await FirebaseFirestore.instance
           .collection('users')
           .doc(_currentUser!.uid)
-          .set({'photoUrl': downloadUrl}, SetOptions(merge: true));
+          .set({'photoUrl': assetPath}, SetOptions(merge: true));
 
       if (mounted) {
         setState(() {
-          // Asegurarse de que _userData no sea null antes de asignarle la llave
           _userData ??= {};
-          _userData!['photoUrl'] = downloadUrl;
+          _userData!['photoUrl'] = assetPath;
         });
-      }
-
-      if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-              content: Text('Foto de perfil actualizada.'),
+              content: Text('Avatar actualizado.'),
               backgroundColor: Colors.green),
         );
       }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error al actualizar la foto: $e')),
+          SnackBar(content: Text('Error al actualizar el avatar: $e')),
         );
       }
     } finally {
-      if (mounted) {
-        setState(() {
-          _isLoading = false;
-        });
-      }
+      if (mounted) setState(() => _isLoading = false);
     }
   }
 
@@ -138,15 +173,66 @@ class _PerfilScreenState extends State<PerfilScreen> {
     return '$age años';
   }
 
-  // 1. MODIFICACIÓN: Eliminar el AppBar de este Scaffold
+  Widget _getDisplayImageWidget(String url, double radius) {
+    if (url.isEmpty) {
+      return Icon(
+        Icons.person,
+        size: radius * 1.15,
+        color: Colors.grey.shade600,
+      );
+    }
+    if (url.startsWith('http')) {
+      // Es una foto subida (URL de Firebase Storage)
+      // Mantenemos esta lógica por si el usuario ya tenía una foto de antes
+      return Image.network(
+        url,
+        fit: BoxFit.cover,
+        width: radius * 2,
+        height: radius * 2,
+        loadingBuilder: (context, child, loadingProgress) {
+          if (loadingProgress == null) return child;
+          return Center(
+            child: CircularProgressIndicator(
+              value: loadingProgress.expectedTotalBytes != null
+                  ? loadingProgress.cumulativeBytesLoaded /
+                      loadingProgress.expectedTotalBytes!
+                  : null,
+            ),
+          );
+        },
+        errorBuilder: (context, error, stackTrace) => Icon(
+          Icons.broken_image,
+          size: radius * 1.15,
+          color: Colors.grey.shade400,
+        ),
+      );
+    }
+    if (url.startsWith('assets/')) {
+      // Es un avatar local
+      // 3. MODIFICACIÓN: Se añade Transform.scale también aquí
+      return Transform.scale(
+        scale: 1.3, // <-- ¡Este es el "zoom"!
+        child: Image.asset(
+          url,
+          fit: BoxFit.cover,
+          width: radius * 2,
+          height: radius * 2,
+        ),
+      );
+    }
+    return Icon(
+      Icons.person,
+      size: radius * 1.15,
+      color: Colors.grey.shade600,
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
-    // Manejar el caso donde _userData aún es null después de cargar
     if (_isLoading) {
       return const Center(child: CircularProgressIndicator());
     }
 
-    // Asegurarse de que _userData no sea null para evitar errores
     final userData = _userData ?? {};
 
     final dob = (userData['dateOfBirth'] != null)
@@ -154,7 +240,6 @@ class _PerfilScreenState extends State<PerfilScreen> {
         : null;
     final String age = _calculateAge(dob);
 
-    // Extraer datos de forma segura
     final String photoUrl = userData['photoUrl'] as String? ?? '';
     final String name = userData['name'] as String? ?? '';
     final String lastName = userData['lastName'] as String? ?? '';
@@ -167,9 +252,10 @@ class _PerfilScreenState extends State<PerfilScreen> {
     final String diet = userData['dietaryPreferences'] as String? ?? 'Ninguna';
     final String household = userData['householdSize']?.toString() ?? '1';
 
+    const double avatarRadius = 70;
+
     return Scaffold(
-      // 2. MODIFICACIÓN: El AppBar se ha quitado
-      backgroundColor: Colors.white, // Fondo blanco para la pantalla
+      backgroundColor: Colors.white,
       body: RefreshIndicator(
         onRefresh: _fetchUserData,
         child: SingleChildScrollView(
@@ -179,40 +265,41 @@ class _PerfilScreenState extends State<PerfilScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.center,
               children: [
-                const SizedBox(height: 20), // Espacio superior
-                GestureDetector(
-                  onTap: _pickAndUploadImage,
-                  child: Stack(
-                    alignment: Alignment.bottomRight,
-                    children: [
-                      CircleAvatar(
-                        radius: 70,
-                        backgroundColor: Colors.grey.shade300,
-                        backgroundImage: (photoUrl.isNotEmpty)
-                            ? NetworkImage(photoUrl) as ImageProvider<Object>?
-                            : null,
-                        child: (photoUrl.isEmpty)
-                            ? Icon(
-                                Icons.person,
-                                size: 80,
-                                color: Colors.grey.shade600,
-                              )
-                            : null,
+                const SizedBox(height: 20),
+                Stack(
+                  alignment: Alignment.bottomRight,
+                  children: [
+                    GestureDetector(
+                      onTap: _showAvatarSelectionDialog,
+                      child: Container(
+                        width: avatarRadius * 2,
+                        height: avatarRadius * 2,
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          color: Colors.grey.shade300,
+                        ),
+                        child: ClipOval(
+                          child: _getDisplayImageWidget(photoUrl, avatarRadius),
+                        ),
                       ),
-                      Container(
+                    ),
+                    // 4. MODIFICACIÓN: Icono y acción del botón
+                    GestureDetector(
+                      onTap: _showAvatarSelectionDialog, // <-- CAMBIADO
+                      child: Container(
                         padding: const EdgeInsets.all(8),
                         decoration: const BoxDecoration(
                           color: Color(0xFF4CAF50),
                           shape: BoxShape.circle,
                         ),
                         child: const Icon(
-                          Icons.camera_alt,
+                          Icons.edit_outlined, // <-- CAMBIADO
                           color: Colors.white,
                           size: 20,
                         ),
                       ),
-                    ],
-                  ),
+                    ),
+                  ],
                 ),
                 const SizedBox(height: 20),
                 Text(
@@ -222,6 +309,7 @@ class _PerfilScreenState extends State<PerfilScreen> {
                 ),
                 const SizedBox(height: 10),
 
+                // ... (El resto del código de Cards, botones, etc. no cambia)
                 Card(
                   elevation: 4,
                   shape: RoundedRectangleBorder(
@@ -242,8 +330,6 @@ class _PerfilScreenState extends State<PerfilScreen> {
                   ),
                 ),
                 const SizedBox(height: 30),
-
-                // Sección de Preferencias
                 Align(
                   alignment: Alignment.centerLeft,
                   child: Text('Preferencias Alimentarias',
@@ -268,13 +354,10 @@ class _PerfilScreenState extends State<PerfilScreen> {
                   ),
                 ),
                 const SizedBox(height: 30),
-
-                // Botón para Modificar Datos
                 SizedBox(
                   width: double.infinity,
                   child: ElevatedButton.icon(
                     onPressed: () async {
-                      // 3. MODIFICACIÓN: Comprobar si el widget está montado
                       if (!mounted) return;
                       final result = await Navigator.push(
                         context,
@@ -282,7 +365,6 @@ class _PerfilScreenState extends State<PerfilScreen> {
                           builder: (context) => const EditProfileScreen(),
                         ),
                       );
-                      // Refrescar datos al regresar
                       if (result == true || result == null) {
                         _fetchUserData();
                       }
@@ -301,7 +383,6 @@ class _PerfilScreenState extends State<PerfilScreen> {
                   ),
                 ),
                 const SizedBox(height: 10),
-                // Botón para Eliminar Cuenta (Opcional)
                 TextButton(
                   onPressed: () {
                     _showDeleteAccountDialog();
@@ -347,16 +428,13 @@ class _PerfilScreenState extends State<PerfilScreen> {
     );
   }
 
-  // 4. MODIFICACIÓN: Corregir advertencias de 'use_build_context_synchronously'
   Future<void> _showDeleteAccountDialog() async {
-    // Guardar el BuildContext en una variable
     final BuildContext dialogContext = context;
 
     return showDialog<void>(
       context: dialogContext,
-      barrierDismissible: false, // User must tap button!
+      barrierDismissible: false,
       builder: (BuildContext context) {
-        // Usar el BuildContext del builder del diálogo
         return AlertDialog(
           title: const Text('Eliminar Cuenta'),
           content: const SingleChildScrollView(
@@ -371,18 +449,17 @@ class _PerfilScreenState extends State<PerfilScreen> {
             TextButton(
               child: const Text('Cancelar'),
               onPressed: () {
-                Navigator.of(context).pop(); // Usar el context del builder
+                Navigator.of(context).pop();
               },
             ),
             TextButton(
               child:
                   const Text('Eliminar', style: TextStyle(color: Colors.red)),
               onPressed: () async {
-                Navigator.of(context).pop(); // Usar el context del builder
+                Navigator.of(context).pop();
 
                 if (_currentUser == null) return;
 
-                // Usar 'mounted' del State
                 if (!mounted) return;
                 setState(() => _isLoading = true);
 
@@ -394,8 +471,10 @@ class _PerfilScreenState extends State<PerfilScreen> {
 
                   final photoUrl = _userData?['photoUrl'] as String?;
                   if (photoUrl != null && photoUrl.isNotEmpty) {
-                    final ref = FirebaseStorage.instance.refFromURL(photoUrl);
-                    await ref.delete();
+                    if (photoUrl.startsWith('http')) {
+                      final ref = FirebaseStorage.instance.refFromURL(photoUrl);
+                      await ref.delete();
+                    }
                   }
 
                   await _currentUser!.delete();

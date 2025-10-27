@@ -100,7 +100,6 @@ class _LoginScreenState extends State<LoginScreen> {
                 keyboardType: TextInputType.emailAddress,
                 decoration: InputDecoration(
                   labelText: 'Correo Electrónico',
-                  hintText: 'ejemplo@correo.com',
                   prefixIcon: const Icon(Icons.email_outlined),
                   labelStyle: const TextStyle(color: Colors.grey),
                   border: OutlineInputBorder(
