@@ -22,7 +22,13 @@ dependencies:
   firebase_core: ^2.25.4
   firebase_auth: ^4.17.4
   cloud_firestore: ^4.15.4
+  
+  # --- 👇 LÍNEAS A AÑADIR (CON LA CORRECCIÓN) ---
+  firebase_storage: ^11.6.9  # Para subir imágenes
+  intl: ^0.20.2             # <--- CORRIGE A ESTA VERSIÓN
+  # --- 👆 FIN DE LAS LÍNEAS A AÑADIR ---
 
+  
 dev_dependencies:
   flutter_test:
     sdk: flutter

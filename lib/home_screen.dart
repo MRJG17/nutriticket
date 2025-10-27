@@ -5,18 +5,15 @@ import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:image_picker/image_picker.dart';
 
-// ⭐️ NUEVAS IMPORTACIONES PARA GEMINI ⭐️
 import 'package:http/http.dart' as http;
 import 'dart:convert';
 import 'package:mime/mime.dart';
 import 'package:nutriticket/main.dart'; // Para AuthWrapper
 import 'package:nutriticket/receipt_item.dart'; // Para el modelo de datos
 
-// ✅ INICIO DE LA MODIFICACIÓN: Importamos las pantallas reales
 import 'perfil_screen.dart';
 import 'recetas_screen.dart';
 import 'ia_nutricional_screen.dart';
-// ✅ FIN DE LA MODIFICACIÓN
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -27,36 +24,30 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen> {
   int _selectedIndex = 0;
 
-  // ⭐️ VARIABLES DE ESCANEO DE GEMINI ⭐️
   File? _pickedImage;
   bool _isLoading = false;
   List<ReceiptItem> _receiptItems = [];
-  String? _errorMessage;
+  String? _errorMessage; // 1. MODIFICACIÓN: Quitar 'final'
 
-  // ************************************************************
-  // ** PASO CLAVE: DEBES INSERTAR TU CLAVE DE API AQUÍ **
-  // ************************************************************
   // ⚠️ ¡REEMPLAZA "TU_CLAVE_AQUI" con tu clave real de la API de Gemini!
-  final String apiKey = "AIzaSyBYS_97Q3VtHrdjpo9thLPSyNooICgYzEI";
+  final String apiKey =
+      "AIzaSyBYS_97Q3VtHrdjpo9thLPSyNooICgYzEI"; // 🔴 ¡PON TU API KEY!
   final String apiUrl =
-      "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-05-20:generateContent";
+      "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent"; // Usa el modelo más reciente
 
-  // ✅ INICIO DE LA MODIFICACIÓN: Usamos los widgets de las pantallas reales
   final List<Widget> _widgetOptions = [
     const Center(child: Text('Inicio: Menú semanal')), // Pantalla de Inicio
     const RecetasScreen(), // Pantalla de Recetas
     const IANutricionalScreen(), // Pantalla de IA
     const PerfilScreen(), // Pantalla de Perfil
   ];
-  // ✅ FIN DE LA MODIFICACIÓN
 
   void _onItemTapped(int index) {
-    if (index == 2) return;
-    // Ajuste de índice: Si es 3 o 4 en la barra, se mapea a 2 o 3 en _widgetOptions
-    setState(() => _selectedIndex = index > 2 ? index - 1 : index);
+    // 2. MODIFICACIÓN: Simplificar el Tapped
+    setState(() => _selectedIndex = index);
   }
 
-  // --- 1. CAPTURA DE IMAGEN ---
+  // --- 1. CAPTURA DE IMAGEN (Sin cambios) ---
   void _onScanPressed() {
     showModalBottomSheet(
       context: context,
@@ -86,7 +77,7 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  // --- 2. GESTIONAR LA IMAGEN Y LLAMAR AL ESCANER ---
+  // --- 2. GESTIONAR LA IMAGEN Y LLAMAR AL ESCANER (Sin cambios) ---
   Future<void> _pickImage(ImageSource source) async {
     final picker = ImagePicker();
     final XFile? pickedFile = await picker.pickImage(source: source);
@@ -100,7 +91,6 @@ class _HomeScreenState extends State<HomeScreen> {
       return;
     }
 
-    // ⭐️ Actualiza el estado y lanza el escaneo de Gemini ⭐️
     setState(() {
       _pickedImage = File(pickedFile.path);
       _receiptItems = [];
@@ -109,7 +99,7 @@ class _HomeScreenState extends State<HomeScreen> {
     await _scanReceipt();
   }
 
-  // --- 3. PROCESO DE ESCANEO CON GEMINI API ---
+  // --- 3. PROCESO DE ESCANEO CON GEMINI API (Sin cambios) ---
   Future<void> _scanReceipt() async {
     if (_pickedImage == null || apiKey == "TU_CLAVE_AQUI" || apiKey.isEmpty) {
       _showError('Error: Por favor, inserta la Clave de API de Gemini.');
@@ -126,7 +116,6 @@ class _HomeScreenState extends State<HomeScreen> {
       final base64Image = base64Encode(bytes);
       final mimeType = lookupMimeType(_pickedImage!.path) ?? 'image/jpeg';
 
-      // ⭐️ Definición del esquema JSON para la salida estructurada ⭐️
       final responseSchema = {
         "type": "ARRAY",
         "items": {
@@ -170,13 +159,11 @@ class _HomeScreenState extends State<HomeScreen> {
         },
       };
 
-      // Llamada a la API con Backoff
       final response = await _fetchWithExponentialBackoff(
         Uri.parse('$apiUrl?key=$apiKey'),
         body: jsonEncode(payload),
       );
 
-      // 4. Procesamiento de la respuesta
       if (response.statusCode == 200) {
         final jsonResponse = jsonDecode(response.body);
         final jsonText = jsonResponse['candidates'][0]['content']['parts'][0]
@@ -196,13 +183,15 @@ class _HomeScreenState extends State<HomeScreen> {
     } catch (e) {
       _showError('Ocurrió un error en el escaneo: ${e.toString()}');
     } finally {
-      setState(() {
-        _isLoading = false;
-      });
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
+      }
     }
   }
 
-  // --- 4. IMPLEMENTACIÓN DE BACKOFF (REINTENTOS) ---
+  // --- 4. IMPLEMENTACIÓN DE BACKOFF (REINTENTOS) (Sin cambios) ---
   Future<http.Response> _fetchWithExponentialBackoff(Uri uri,
       {String? body}) async {
     const maxRetries = 3;
@@ -215,7 +204,6 @@ class _HomeScreenState extends State<HomeScreen> {
           headers: {'Content-Type': 'application/json'},
           body: body,
         );
-        // Si no es un error de rate limit (429), devuelve la respuesta
         if (response.statusCode < 500 && response.statusCode != 429) {
           return response;
         }
@@ -228,7 +216,6 @@ class _HomeScreenState extends State<HomeScreen> {
         await Future.delayed(delay);
       }
     }
-    // Si todos los reintentos fallan, devuelve el último error
     return http.Response(
         '{"error": "Tiempo de espera agotado o error de red."}', 500);
   }
@@ -241,10 +228,11 @@ class _HomeScreenState extends State<HomeScreen> {
         SnackBar(content: Text(message), backgroundColor: Colors.red),
       );
     }
-    setState(() => _isLoading = false); // Asegura que se quite el indicador
+    if (mounted) {
+      setState(() => _isLoading = false);
+    }
   }
 
-  // Función para mostrar la lista de productos extraídos
   void _showResultsDialog() {
     final total = _receiptItems.fold<double>(
         0.0, (sum, item) => sum + (item.price * item.qty));
@@ -259,7 +247,7 @@ class _HomeScreenState extends State<HomeScreen> {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              // Lista de productos
+              // ... (Contenido del diálogo sin cambios) ...
               ConstrainedBox(
                 constraints: const BoxConstraints(maxHeight: 250),
                 child: ListView(
@@ -286,7 +274,6 @@ class _HomeScreenState extends State<HomeScreen> {
                 ),
               ),
               const Divider(height: 20, thickness: 2),
-              // Total
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
@@ -304,10 +291,8 @@ class _HomeScreenState extends State<HomeScreen> {
               const SizedBox(height: 20),
               ElevatedButton(
                 onPressed: () {
-                  Navigator.pop(context); // Cierra el diálogo
-                  // 💡 NAVEGACIÓN A LA PANTALLA DE IA NUTRICIONAL 💡
-                  _onItemTapped(
-                      2); // Selecciona el índice 2 (IA Nutricional) en la barra
+                  Navigator.pop(context);
+                  _onItemTapped(2); // Navegar a la pestaña de IA (índice 2)
                 },
                 child: const Text('Analizar Nutrición y Menú'),
               )
@@ -323,30 +308,42 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
+  // 3. MODIFICACIÓN: Añadir la función de Cerrar Sesión
+  Future<void> _logout() async {
+    await FirebaseAuth.instance.signOut();
+    if (context.mounted) {
+      Navigator.of(context).pushAndRemoveUntil(
+        MaterialPageRoute(builder: (_) => const AuthWrapper()),
+        (_) => false,
+      );
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
-    // Aquí puedes añadir un indicador de carga global si _isLoading es verdadero
+    // 4. MODIFICACIÓN: Lógica para el título y acciones del AppBar
+    final bool isProfileTab = _selectedIndex == 3;
+    final String title = isProfileTab ? 'Mi Perfil' : 'NutriTicket';
+    final List<Widget> actions = isProfileTab
+        ? [
+            IconButton(
+              icon: const Icon(Icons.logout),
+              onPressed: _logout, // Usar la función de logout
+            ),
+          ]
+        : []; // Lista vacía para otras pestañas
+
     return Scaffold(
+      // 5. MODIFICACIÓN: Usar el título y acciones dinámicos
       appBar: AppBar(
-        title: const Text('NutriTicket'),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.logout),
-            onPressed: () async {
-              await FirebaseAuth.instance.signOut();
-              if (context.mounted) {
-                // Navega al AuthWrapper, forzando el regreso a la pantalla de bienvenida
-                Navigator.of(context).pushAndRemoveUntil(
-                  MaterialPageRoute(builder: (_) => const AuthWrapper()),
-                  (_) => false,
-                );
-              }
-            },
-          ),
-        ],
+        title: Text(title),
+        // Estilo verde solo para la pestaña de perfil
+        backgroundColor: isProfileTab ? const Color(0xFF4CAF50) : null,
+        foregroundColor: isProfileTab ? Colors.white : null,
+        elevation: isProfileTab ? 0 : null,
+        actions: actions,
       ),
       body: Stack(
-        // Usamos Stack para el indicador de carga sobre la pantalla
         children: [
           _widgetOptions[_selectedIndex],
           if (_isLoading)
@@ -367,9 +364,7 @@ class _HomeScreenState extends State<HomeScreen> {
         ],
       ),
       floatingActionButton: FloatingActionButton(
-        onPressed: _isLoading
-            ? null
-            : _onScanPressed, // Desactiva el botón si está cargando
+        onPressed: _isLoading ? null : _onScanPressed,
         backgroundColor: Colors.lightGreen,
         foregroundColor: Colors.white,
         shape: const CircleBorder(),
@@ -382,12 +377,12 @@ class _HomeScreenState extends State<HomeScreen> {
         child: Row(
           mainAxisAlignment: MainAxisAlignment.spaceAround,
           children: [
+            // 6. MODIFICACIÓN: Simplificar índices
             _buildNavItem(Icons.home, 'Inicio', 0),
             _buildNavItem(Icons.restaurant, 'Recetas', 1),
-            const SizedBox(width: 48),
-            _buildNavItem(Icons.analytics, 'IA Nutricional',
-                3), // Índice real de la barra
-            _buildNavItem(Icons.person, 'Perfil', 4), // Índice real de la barra
+            const SizedBox(width: 48), // Espacio para el botón flotante
+            _buildNavItem(Icons.analytics, 'IA Nutricional', 2),
+            _buildNavItem(Icons.person, 'Perfil', 3),
           ],
         ),
       ),
@@ -395,9 +390,8 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Widget _buildNavItem(IconData icon, String label, int itemIndex) {
-    // La lógica de mapeo se hace en _onItemTapped, aquí solo calculamos si está activo
-    final optionIndex = itemIndex > 2 ? itemIndex - 1 : itemIndex;
-    final isActive = _selectedIndex == optionIndex;
+    // 7. MODIFICACIÓN: Simplificar lógica de ítem activo
+    final isActive = _selectedIndex == itemIndex;
     final color = isActive ? Colors.lightGreen : Colors.grey;
 
     return Expanded(

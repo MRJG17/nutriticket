@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'user_profile_screen.dart'; // Importamos la siguiente pantalla
+import 'package:cloud_firestore/cloud_firestore.dart'; // 1. Importar Firestore
+import 'package:intl/intl.dart'; // 2. Importar Intl para fechas
+import 'edit_profile_screen.dart'; // 3. Importar la nueva pantalla de edición
 
 class RegisterScreen extends StatefulWidget {
   const RegisterScreen({super.key});
@@ -10,6 +12,11 @@ class RegisterScreen extends StatefulWidget {
 }
 
 class _RegisterScreenState extends State<RegisterScreen> {
+  // 4. Añadir FormKey, isLoading y selectedDate
+  final _formKey = GlobalKey<FormState>();
+  bool _isLoading = false;
+  DateTime? _selectedDateOfBirth;
+
   final TextEditingController _emailController = TextEditingController();
   final TextEditingController _passwordController = TextEditingController();
   final TextEditingController _confirmPasswordController =
@@ -30,13 +37,13 @@ class _RegisterScreenState extends State<RegisterScreen> {
     super.dispose();
   }
 
-  // ✅ NUEVA FUNCIÓN PARA MOSTRAR EL CALENDARIO
+  /// 5. Actualizar _selectDate para que guarde el objeto DateTime
   Future<void> _selectDate() async {
     DateTime? picked = await showDatePicker(
       context: context,
-      initialDate: DateTime.now(),
-      firstDate: DateTime(1920), // El usuario más viejo que permitimos
-      lastDate: DateTime.now(), // No se pueden seleccionar fechas futuras
+      initialDate: DateTime(DateTime.now().year - 20), // Fecha inicial sugerida
+      firstDate: DateTime(1920),
+      lastDate: DateTime.now(),
       helpText: 'Selecciona tu fecha de nacimiento',
       cancelText: 'Cancelar',
       confirmText: 'Aceptar',
@@ -44,32 +51,62 @@ class _RegisterScreenState extends State<RegisterScreen> {
 
     if (picked != null) {
       setState(() {
-        // Formateamos la fecha a DD/MM/AAAA
+        _selectedDateOfBirth = picked; // Guardar el DateTime
         _dobController.text =
-            "${picked.day.toString().padLeft(2, '0')}/${picked.month.toString().padLeft(2, '0')}/${picked.year}";
+            DateFormat('dd/MM/yyyy').format(picked); // Formatear texto
       });
     }
   }
 
+  /// 6. Actualizar _registerUser para guardar en Firestore
   Future<void> _registerUser() async {
-    // --- La lógica de registro no cambia ---
-    if (_passwordController.text != _confirmPasswordController.text) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text("Las contraseñas no coinciden."),
-            backgroundColor: Colors.red,
-          ),
-        );
-      }
+    // Validar el formulario
+    if (!_formKey.currentState!.validate()) {
       return;
     }
 
+    // No es necesario un check de contraseñas aquí, el validador del campo lo hace
+
+    setState(() {
+      _isLoading = true;
+    });
+
     try {
-      await FirebaseAuth.instance.createUserWithEmailAndPassword(
+      // 1. Crear usuario en Firebase Auth
+      UserCredential userCredential =
+          await FirebaseAuth.instance.createUserWithEmailAndPassword(
         email: _emailController.text.trim(),
         password: _passwordController.text.trim(),
       );
+
+      // 2. Guardar datos iniciales en Firestore
+      if (userCredential.user != null) {
+        final uid = userCredential.user!.uid;
+
+        Map<String, dynamic> initialUserData = {
+          'uid': uid,
+          'email': _emailController.text.trim(),
+          'name': _nameController.text.trim(),
+          'lastName': _lastnameController.text.trim(),
+          'dateOfBirth': _selectedDateOfBirth != null
+              ? Timestamp.fromDate(_selectedDateOfBirth!)
+              : null,
+          'createdAt': FieldValue.serverTimestamp(),
+          // Valores por defecto para el resto del perfil
+          'gender': 'No especificar',
+          'heightCm': 0.0,
+          'weightKg': 0.0,
+          'dietaryPreferences': 'Ninguna',
+          'householdSize': 1,
+          'photoUrl': '',
+          'hasCompletedProfile': false, // Importante
+        };
+
+        await FirebaseFirestore.instance
+            .collection('users')
+            .doc(uid)
+            .set(initialUserData);
+      }
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -79,24 +116,32 @@ class _RegisterScreenState extends State<RegisterScreen> {
           ),
         );
 
+        // 3. Navegar a EditProfileScreen para completar el perfil
         Navigator.pushReplacement(
           context,
-          MaterialPageRoute(builder: (context) => const UserProfileScreen()),
+          MaterialPageRoute(builder: (context) => const EditProfileScreen()),
         );
       }
     } on FirebaseAuthException catch (e) {
       String errorMessage = "Ocurrió un error al registrar.";
       if (e.code == 'weak-password') {
-        errorMessage =
-            'La contraseña es demasiado débil (mínimo 6 caracteres).';
+        errorMessage = 'La contraseña es demasiado débil.';
       } else if (e.code == 'email-already-in-use') {
         errorMessage = 'Ya existe una cuenta con ese correo electrónico.';
+      } else if (e.code == 'invalid-email') {
+        errorMessage = 'El correo electrónico no es válido.';
       }
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text(errorMessage), backgroundColor: Colors.red),
         );
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
       }
     }
   }
@@ -120,145 +165,184 @@ class _RegisterScreenState extends State<RegisterScreen> {
       body: Center(
         child: SingleChildScrollView(
           padding: const EdgeInsets.symmetric(horizontal: 20.0),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              ConstrainedBox(
-                constraints: const BoxConstraints(
-                  maxHeight: 150,
-                  maxWidth: 150,
-                ),
-                child: Image.asset('assets/images/logo.png', height: logoSize),
-              ),
-              const SizedBox(height: 30),
-              TextField(
-                controller: _nameController,
-                decoration: _buildInputDecoration(
-                  label: 'Nombre',
-                  prefixIcon:
-                      const Icon(Icons.person_outline, color: Colors.grey),
-                ),
-              ),
-              const SizedBox(height: 15),
-              TextField(
-                controller: _lastnameController,
-                decoration: _buildInputDecoration(
-                  label: 'Apellido',
-                  prefixIcon:
-                      const Icon(Icons.person_outline, color: Colors.grey),
-                ),
-              ),
-              const SizedBox(height: 15),
-              // ✅ CAMPO DE CORREO CON ICONO
-              TextField(
-                controller: _emailController,
-                keyboardType: TextInputType.emailAddress,
-                decoration: _buildInputDecoration(
-                  label: 'Correo Electrónico',
-                  prefixIcon:
-                      const Icon(Icons.email_outlined, color: Colors.grey),
-                ),
-              ),
-              const SizedBox(height: 15),
-              TextField(
-                controller: _dobController,
-                decoration: _buildInputDecoration(
-                  label: 'Fecha de Nacimiento',
-                  suffixIcon: const Icon(
-                    Icons.calendar_today_outlined,
-                    color: Colors.grey,
+          // 7. Envolver la Columna en un Form
+          child: Form(
+            key: _formKey,
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                ConstrainedBox(
+                  constraints: const BoxConstraints(
+                    maxHeight: 150,
+                    maxWidth: 150,
                   ),
+                  child:
+                      Image.asset('assets/images/logo.png', height: logoSize),
                 ),
-                readOnly: true, // Para evitar que se abra el teclado
-                onTap: _selectDate, // Llama a nuestra función al tocar
-              ),
-              const SizedBox(height: 15),
-              // ✅ CAMPO DE CONTRASEÑA CON ICONO
-              TextField(
-                controller: _passwordController,
-                obscureText: true,
-                decoration: _buildInputDecoration(
-                  label: 'Contraseña',
-                  prefixIcon:
-                      const Icon(Icons.lock_outline, color: Colors.grey),
+                const SizedBox(height: 30),
+                // 8. Convertir TextFields a TextFormField y añadir validadores
+                TextFormField(
+                  controller: _nameController,
+                  decoration: _buildInputDecoration(
+                    label: 'Nombre',
+                    prefixIcon:
+                        const Icon(Icons.person_outline, color: Colors.grey),
+                  ),
+                  validator: (value) => (value == null || value.isEmpty)
+                      ? 'Campo requerido'
+                      : null,
                 ),
-              ),
-              const SizedBox(height: 15),
-              // ✅ CAMPO DE CONFIRMAR CONTRASEÑA CON ICONO
-              TextField(
-                controller: _confirmPasswordController,
-                obscureText: true,
-                decoration: _buildInputDecoration(
-                  label: 'Confirmar Contraseña',
-                  prefixIcon:
-                      const Icon(Icons.lock_outline, color: Colors.grey),
+                const SizedBox(height: 15),
+                TextFormField(
+                  controller: _lastnameController,
+                  decoration: _buildInputDecoration(
+                    label: 'Apellido',
+                    prefixIcon:
+                        const Icon(Icons.person_outline, color: Colors.grey),
+                  ),
+                  validator: (value) => (value == null || value.isEmpty)
+                      ? 'Campo requerido'
+                      : null,
                 ),
-              ),
-              const SizedBox(height: 30),
-              SizedBox(
-                width: double.infinity,
-                height: 50,
-                child: ElevatedButton(
-                  onPressed: _registerUser,
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFF4CAF50),
-                    foregroundColor: Colors.white,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(10),
+                const SizedBox(height: 15),
+                TextFormField(
+                  controller: _emailController,
+                  keyboardType: TextInputType.emailAddress,
+                  decoration: _buildInputDecoration(
+                    label: 'Correo Electrónico',
+                    prefixIcon:
+                        const Icon(Icons.email_outlined, color: Colors.grey),
+                  ),
+                  validator: (value) {
+                    if (value == null ||
+                        value.isEmpty ||
+                        !value.contains('@')) {
+                      return 'Ingresa un correo válido';
+                    }
+                    return null;
+                  },
+                ),
+                const SizedBox(height: 15),
+                TextFormField(
+                  controller: _dobController,
+                  decoration: _buildInputDecoration(
+                    label: 'Fecha de Nacimiento',
+                    suffixIcon: const Icon(
+                      Icons.calendar_today_outlined,
+                      color: Colors.grey,
                     ),
                   ),
-                  child: const Text(
-                    'Crear Cuenta',
-                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                  readOnly: true,
+                  onTap: _selectDate,
+                  validator: (value) => (value == null || value.isEmpty)
+                      ? 'Campo requerido'
+                      : null,
+                ),
+                const SizedBox(height: 15),
+                TextFormField(
+                  controller: _passwordController,
+                  obscureText: true,
+                  decoration: _buildInputDecoration(
+                    label: 'Contraseña',
+                    prefixIcon:
+                        const Icon(Icons.lock_outline, color: Colors.grey),
+                  ),
+                  validator: (value) {
+                    if (value == null || value.length < 6) {
+                      return 'Mínimo 6 caracteres';
+                    }
+                    return null;
+                  },
+                ),
+                const SizedBox(height: 15),
+                TextFormField(
+                  controller: _confirmPasswordController,
+                  obscureText: true,
+                  decoration: _buildInputDecoration(
+                    label: 'Confirmar Contraseña',
+                    prefixIcon:
+                        const Icon(Icons.lock_outline, color: Colors.grey),
+                  ),
+                  validator: (value) {
+                    if (value != _passwordController.text) {
+                      return 'Las contraseñas no coinciden';
+                    }
+                    return null;
+                  },
+                ),
+                const SizedBox(height: 30),
+                SizedBox(
+                  width: double.infinity,
+                  height: 50,
+                  // 9. Manejar el estado de carga del botón
+                  child: ElevatedButton(
+                    onPressed: _isLoading ? null : _registerUser,
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFF4CAF50),
+                      foregroundColor: Colors.white,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                    ),
+                    child: _isLoading
+                        ? const CircularProgressIndicator(color: Colors.white)
+                        : const Text(
+                            'Crear Cuenta',
+                            style: TextStyle(
+                                fontSize: 18, fontWeight: FontWeight.bold),
+                          ),
                   ),
                 ),
-              ),
-              const SizedBox(height: 30),
-              Row(
-                children: [
-                  const Expanded(child: Divider(color: Colors.grey)),
-                  Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 10),
-                    child: Text(
-                      '— O regístrate con —',
-                      style: TextStyle(color: Colors.grey[600]),
+                const SizedBox(height: 30),
+                Row(
+                  children: [
+                    const Expanded(child: Divider(color: Colors.grey)),
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 10),
+                      child: Text(
+                        '— O regístrate con —',
+                        style: TextStyle(color: Colors.grey[600]),
+                      ),
                     ),
-                  ),
-                  const Expanded(child: Divider(color: Colors.grey)),
-                ],
-              ),
-              const SizedBox(height: 20),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  GestureDetector(
-                    onTap: () {},
-                    child: CircleAvatar(
-                      radius: socialIconRadius.clamp(25.0, 35.0),
-                      backgroundColor: Colors.transparent,
-                      child: Image.asset('assets/images/google.png'),
+                    const Expanded(child: Divider(color: Colors.grey)),
+                  ],
+                ),
+                const SizedBox(height: 20),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    GestureDetector(
+                      onTap: () {
+                        // TODO: Implementar Google Sign-In
+                      },
+                      child: CircleAvatar(
+                        radius: socialIconRadius.clamp(25.0, 35.0),
+                        backgroundColor: Colors.transparent,
+                        child: Image.asset('assets/images/google.png'),
+                      ),
                     ),
-                  ),
-                  const SizedBox(width: 30),
-                  GestureDetector(
-                    onTap: () {},
-                    child: CircleAvatar(
-                      radius: socialIconRadius.clamp(25.0, 35.0),
-                      backgroundColor: Colors.transparent,
-                      child: Image.asset('assets/images/facebook.png'),
+                    const SizedBox(width: 30),
+                    GestureDetector(
+                      onTap: () {
+                        // TODO: Implementar Facebook Sign-In
+                      },
+                      child: CircleAvatar(
+                        radius: socialIconRadius.clamp(25.0, 35.0),
+                        backgroundColor: Colors.transparent,
+                        child: Image.asset('assets/images/facebook.png'),
+                      ),
                     ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 20),
-            ],
+                  ],
+                ),
+                const SizedBox(height: 20),
+              ],
+            ),
           ),
         ),
       ),
     );
   }
 
-  // ✅ FUNCIÓN DE AYUDA MODIFICADA PARA ACEPTAR ICONOS PREFIJO Y SUFIJO
   InputDecoration _buildInputDecoration({
     required String label,
     Widget? prefixIcon,
@@ -275,6 +359,19 @@ class _RegisterScreenState extends State<RegisterScreen> {
       filled: true,
       fillColor: Colors.grey[200],
       suffixIcon: suffixIcon,
+      // Añadir bordes de error y foco para la validación
+      errorBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(10),
+        borderSide: const BorderSide(color: Colors.red, width: 2),
+      ),
+      focusedErrorBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(10),
+        borderSide: const BorderSide(color: Colors.red, width: 2),
+      ),
+      focusedBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(10),
+        borderSide: const BorderSide(color: Color(0xFF4CAF50), width: 2),
+      ),
     );
   }
 }
