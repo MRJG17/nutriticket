@@ -27,13 +27,15 @@ class _HomeScreenState extends State<HomeScreen> {
   File? _pickedImage;
   bool _isLoading = false;
   List<ReceiptItem> _receiptItems = [];
-  String? _errorMessage; // 1. MODIFICACIÓN: Quitar 'final'
+  String? _errorMessage;
 
   // ⚠️ ¡REEMPLAZA "TU_CLAVE_AQUI" con tu clave real de la API de Gemini!
   final String apiKey =
       "AIzaSyBYS_97Q3VtHrdjpo9thLPSyNooICgYzEI"; // 🔴 ¡PON TU API KEY!
+
+  // ✅ CORRECCIÓN 1: Se usa 'v1' en lugar de 'v1beta'
   final String apiUrl =
-      "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent"; // Usa el modelo más reciente
+      "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-05-20:generateContent";
 
   final List<Widget> _widgetOptions = [
     const Center(child: Text('Inicio: Menú semanal')), // Pantalla de Inicio
@@ -43,11 +45,10 @@ class _HomeScreenState extends State<HomeScreen> {
   ];
 
   void _onItemTapped(int index) {
-    // 2. MODIFICACIÓN: Simplificar el Tapped
     setState(() => _selectedIndex = index);
   }
 
-  // --- 1. CAPTURA DE IMAGEN (Sin cambios) ---
+  // --- 1. CAPTURA DE IMAGEN ---
   void _onScanPressed() {
     showModalBottomSheet(
       context: context,
@@ -77,7 +78,7 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  // --- 2. GESTIONAR LA IMAGEN Y LLAMAR AL ESCANER (Sin cambios) ---
+  // --- 2. GESTIONAR LA IMAGEN Y LLAMAR AL ESCANER ---
   Future<void> _pickImage(ImageSource source) async {
     final picker = ImagePicker();
     final XFile? pickedFile = await picker.pickImage(source: source);
@@ -99,7 +100,7 @@ class _HomeScreenState extends State<HomeScreen> {
     await _scanReceipt();
   }
 
-  // --- 3. PROCESO DE ESCANEO CON GEMINI API (Sin cambios) ---
+  // --- 3. PROCESO DE ESCANEO CON GEMINI API ---
   Future<void> _scanReceipt() async {
     if (_pickedImage == null || apiKey == "TU_CLAVE_AQUI" || apiKey.isEmpty) {
       _showError('Error: Por favor, inserta la Clave de API de Gemini.');
@@ -124,17 +125,19 @@ class _HomeScreenState extends State<HomeScreen> {
             "item": {"type": "STRING", "description": "Nombre del producto."},
             "price": {
               "type": "NUMBER",
-              "description": "Precio unitario o total del artículo."
+              "description": "Precio unitario o total del artículo.",
             },
             "qty": {
               "type": "NUMBER",
-              "description": "Cantidad de artículos, usa 1 por defecto."
-            }
+              "description": "Cantidad de artículos, usa 1 por defecto.",
+            },
           },
-          "required": ["item", "price"]
-        }
+          "required": ["item", "price"],
+        },
       };
 
+      // ✅ CORRECCIÓN 2: 'responseMimeType' y 'responseSchema'
+      // están fuera de 'generationConfig' y ya NO están comentados.
       final payload = {
         "contents": [
           {
@@ -142,16 +145,13 @@ class _HomeScreenState extends State<HomeScreen> {
             "parts": [
               {
                 "text":
-                    "Extrae la lista de productos, su precio y cantidad del ticket. Devuelve la lista como un JSON siguiendo el esquema proporcionado. Ignora líneas de impuestos, subtotales o totales."
+                    "Extrae la lista de productos, su precio y cantidad del ticket. Devuelve la lista como un JSON siguiendo el esquema proporcionado. Ignora líneas de impuestos, subtotales o totales.",
               },
               {
-                "inlineData": {
-                  "mimeType": mimeType,
-                  "data": base64Image,
-                }
-              }
-            ]
-          }
+                "inlineData": {"mimeType": mimeType, "data": base64Image},
+              },
+            ],
+          },
         ],
         "generationConfig": {
           "responseMimeType": "application/json",
@@ -166,19 +166,22 @@ class _HomeScreenState extends State<HomeScreen> {
 
       if (response.statusCode == 200) {
         final jsonResponse = jsonDecode(response.body);
-        final jsonText = jsonResponse['candidates'][0]['content']['parts'][0]
-            ['text'] as String;
+        final jsonText =
+            jsonResponse['candidates'][0]['content']['parts'][0]['text']
+                as String;
 
         final List<dynamic> parsedJsonList = jsonDecode(jsonText);
 
         setState(() {
-          _receiptItems =
-              parsedJsonList.map((item) => ReceiptItem.fromJson(item)).toList();
+          _receiptItems = parsedJsonList
+              .map((item) => ReceiptItem.fromJson(item))
+              .toList();
         });
         if (mounted) _showResultsDialog();
       } else {
         _showError(
-            'Error en la API: ${response.statusCode}. Mensaje: ${response.body}');
+          'Error en la API: ${response.statusCode}. Mensaje: ${response.body}',
+        );
       }
     } catch (e) {
       _showError('Ocurrió un error en el escaneo: ${e.toString()}');
@@ -191,9 +194,11 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
-  // --- 4. IMPLEMENTACIÓN DE BACKOFF (REINTENTOS) (Sin cambios) ---
-  Future<http.Response> _fetchWithExponentialBackoff(Uri uri,
-      {String? body}) async {
+  // --- 4. IMPLEMENTACIÓN DE BACKOFF (REINTENTOS) ---
+  Future<http.Response> _fetchWithExponentialBackoff(
+    Uri uri, {
+    String? body,
+  }) async {
     const maxRetries = 3;
     const initialDelay = Duration(seconds: 2);
 
@@ -217,7 +222,9 @@ class _HomeScreenState extends State<HomeScreen> {
       }
     }
     return http.Response(
-        '{"error": "Tiempo de espera agotado o error de red."}', 500);
+      '{"error": "Tiempo de espera agotado o error de red."}',
+      500,
+    );
   }
 
   // --- FUNCIONES DE INTERFAZ ---
@@ -235,7 +242,9 @@ class _HomeScreenState extends State<HomeScreen> {
 
   void _showResultsDialog() {
     final total = _receiptItems.fold<double>(
-        0.0, (sum, item) => sum + (item.price * item.qty));
+      0.0,
+      (sum, item) => sum + (item.price * item.qty),
+    );
 
     showDialog(
       context: context,
@@ -247,29 +256,37 @@ class _HomeScreenState extends State<HomeScreen> {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              // ... (Contenido del diálogo sin cambios) ...
               ConstrainedBox(
                 constraints: const BoxConstraints(maxHeight: 250),
                 child: ListView(
                   shrinkWrap: true,
                   children: [
-                    ..._receiptItems.map((item) => Padding(
-                          padding: const EdgeInsets.symmetric(vertical: 4.0),
-                          child: Row(
-                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                            children: [
-                              Expanded(
-                                  flex: 2,
-                                  child: Text(item.item,
-                                      style: const TextStyle(
-                                          fontWeight: FontWeight.w500))),
-                              Text('${item.qty}x',
-                                  style: const TextStyle(color: Colors.grey)),
-                              Text(
-                                  '\$${(item.price * item.qty).toStringAsFixed(2)}'),
-                            ],
-                          ),
-                        )),
+                    ..._receiptItems.map(
+                      (item) => Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 4.0),
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Expanded(
+                              flex: 2,
+                              child: Text(
+                                item.item,
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.w500,
+                                ),
+                              ),
+                            ),
+                            Text(
+                              '${item.qty}x',
+                              style: const TextStyle(color: Colors.grey),
+                            ),
+                            Text(
+                              '\$${(item.price * item.qty).toStringAsFixed(2)}',
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
                   ],
                 ),
               ),
@@ -277,14 +294,17 @@ class _HomeScreenState extends State<HomeScreen> {
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  const Text('TOTAL ESTIMADO:',
-                      style: TextStyle(fontWeight: FontWeight.bold)),
+                  const Text(
+                    'TOTAL ESTIMADO:',
+                    style: TextStyle(fontWeight: FontWeight.bold),
+                  ),
                   Text(
                     '\$${total.toStringAsFixed(2)}',
                     style: const TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.bold,
-                        color: Colors.redAccent),
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.redAccent,
+                    ),
                   ),
                 ],
               ),
@@ -295,20 +315,20 @@ class _HomeScreenState extends State<HomeScreen> {
                   _onItemTapped(2); // Navegar a la pestaña de IA (índice 2)
                 },
                 child: const Text('Analizar Nutrición y Menú'),
-              )
+              ),
             ],
           ),
         ),
         actions: [
           TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text('Cerrar'))
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cerrar'),
+          ),
         ],
       ),
     );
   }
 
-  // 3. MODIFICACIÓN: Añadir la función de Cerrar Sesión
   Future<void> _logout() async {
     await FirebaseAuth.instance.signOut();
     if (context.mounted) {
@@ -321,7 +341,6 @@ class _HomeScreenState extends State<HomeScreen> {
 
   @override
   Widget build(BuildContext context) {
-    // 4. MODIFICACIÓN: Lógica para el título y acciones del AppBar
     final bool isProfileTab = _selectedIndex == 3;
     final String title = isProfileTab ? 'Mi Perfil' : 'NutriTicket';
     final List<Widget> actions = isProfileTab
@@ -331,13 +350,11 @@ class _HomeScreenState extends State<HomeScreen> {
               onPressed: _logout, // Usar la función de logout
             ),
           ]
-        : []; // Lista vacía para otras pestañas
+        : [];
 
     return Scaffold(
-      // 5. MODIFICACIÓN: Usar el título y acciones dinámicos
       appBar: AppBar(
         title: Text(title),
-        // Estilo verde solo para la pestaña de perfil
         backgroundColor: isProfileTab ? const Color(0xFF4CAF50) : null,
         foregroundColor: isProfileTab ? Colors.white : null,
         elevation: isProfileTab ? 0 : null,
@@ -355,8 +372,10 @@ class _HomeScreenState extends State<HomeScreen> {
                   children: [
                     CircularProgressIndicator(color: Colors.white),
                     SizedBox(height: 10),
-                    Text('Analizando el ticket con IA...',
-                        style: TextStyle(color: Colors.white)),
+                    Text(
+                      'Analizando el ticket con IA...',
+                      style: TextStyle(color: Colors.white),
+                    ),
                   ],
                 ),
               ),
@@ -377,7 +396,6 @@ class _HomeScreenState extends State<HomeScreen> {
         child: Row(
           mainAxisAlignment: MainAxisAlignment.spaceAround,
           children: [
-            // 6. MODIFICACIÓN: Simplificar índices
             _buildNavItem(Icons.home, 'Inicio', 0),
             _buildNavItem(Icons.restaurant, 'Recetas', 1),
             const SizedBox(width: 48), // Espacio para el botón flotante
@@ -390,7 +408,6 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Widget _buildNavItem(IconData icon, String label, int itemIndex) {
-    // 7. MODIFICACIÓN: Simplificar lógica de ítem activo
     final isActive = _selectedIndex == itemIndex;
     final color = isActive ? Colors.lightGreen : Colors.grey;
 
