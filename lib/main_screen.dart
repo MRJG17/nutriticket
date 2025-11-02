@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'dart:math' as math; // Necesario para rotar la ola inferior
-import 'register_screen.dart';
 import 'login_screen.dart';
 
 class MainScreen extends StatelessWidget {

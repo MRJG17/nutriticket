@@ -23,11 +23,9 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> {
   int _selectedIndex = 0;
-
   File? _pickedImage;
   bool _isLoading = false;
   List<ReceiptItem> _receiptItems = [];
-  String? _errorMessage;
 
   // ⚠️ ¡REEMPLAZA "TU_CLAVE_AQUI" con tu clave real de la API de Gemini!
   final String apiKey =
@@ -38,11 +36,11 @@ class _HomeScreenState extends State<HomeScreen> {
       "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-05-20:generateContent";
 
   final List<Widget> _widgetOptions = [
-    const Center(child: Text('Inicio: Menú semanal')), // Pantalla de Inicio
-    const RecetasScreen(), // Pantalla de Recetas
-    const IANutricionalScreen(), // Pantalla de IA
-    const PerfilScreen(), // Pantalla de Perfil
-  ];
+  const Center(child: Text('Inicio: Menú semanal')), // 0
+  const RecetasScreen(), // 1
+  const Center(child: Text('Presiona Escanear para comenzar.')), // 2
+  const PerfilScreen(), // 3
+];
 
   void _onItemTapped(int index) {
     setState(() => _selectedIndex = index);
@@ -95,7 +93,6 @@ class _HomeScreenState extends State<HomeScreen> {
     setState(() {
       _pickedImage = File(pickedFile.path);
       _receiptItems = [];
-      _errorMessage = null;
     });
     await _scanReceipt();
   }
@@ -109,7 +106,6 @@ class _HomeScreenState extends State<HomeScreen> {
 
     setState(() {
       _isLoading = true;
-      _errorMessage = null;
     });
 
     try {
@@ -123,16 +119,12 @@ class _HomeScreenState extends State<HomeScreen> {
           "type": "OBJECT",
           "properties": {
             "item": {"type": "STRING", "description": "Nombre del producto."},
-            "price": {
-              "type": "NUMBER",
-              "description": "Precio unitario o total del artículo.",
-            },
             "qty": {
               "type": "NUMBER",
               "description": "Cantidad de artículos, usa 1 por defecto.",
             },
           },
-          "required": ["item", "price"],
+          "required": ["item", "qty"],
         },
       };
 
@@ -145,7 +137,7 @@ class _HomeScreenState extends State<HomeScreen> {
             "parts": [
               {
                 "text":
-                    "Extrae la lista de productos, su precio y cantidad del ticket. Devuelve la lista como un JSON siguiendo el esquema proporcionado. Ignora líneas de impuestos, subtotales o totales.",
+                    "Extrae la lista de productos y cantidad del ticket. Devuelve la lista como un JSON siguiendo el esquema proporcionado. Ignora líneas de impuestos, subtotales o totales.",
               },
               {
                 "inlineData": {"mimeType": mimeType, "data": base64Image},
@@ -240,94 +232,91 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
-  void _showResultsDialog() {
-    final total = _receiptItems.fold<double>(
-      0.0,
-      (sum, item) => sum + (item.price * item.qty),
-    );
+  // lib/home_screen.dart: dentro de _HomeScreenState
 
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Productos Extraídos por IA'),
-        content: SizedBox(
-          width: double.maxFinite,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              ConstrainedBox(
-                constraints: const BoxConstraints(maxHeight: 250),
-                child: ListView(
-                  shrinkWrap: true,
-                  children: [
-                    ..._receiptItems.map(
-                      (item) => Padding(
-                        padding: const EdgeInsets.symmetric(vertical: 4.0),
-                        child: Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                          children: [
-                            Expanded(
-                              flex: 2,
-                              child: Text(
-                                item.item,
-                                style: const TextStyle(
-                                  fontWeight: FontWeight.w500,
-                                ),
-                              ),
-                            ),
-                            Text(
-                              '${item.qty}x',
-                              style: const TextStyle(color: Colors.grey),
-                            ),
-                            Text(
-                              '\$${(item.price * item.qty).toStringAsFixed(2)}',
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              const Divider(height: 20, thickness: 2),
-              Row(
+void _showResultsDialog() {
+
+  showDialog(
+    context: context,
+    builder: (context) => AlertDialog(
+      title: const Text('Productos Extraídos por IA'),
+      content: SizedBox(
+        width: double.maxFinite,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            // Encabezado de la lista simplificado
+            const Padding(
+              padding: EdgeInsets.symmetric(vertical: 4.0),
+              child: Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  const Text(
-                    'TOTAL ESTIMADO:',
-                    style: TextStyle(fontWeight: FontWeight.bold),
-                  ),
-                  Text(
-                    '\$${total.toStringAsFixed(2)}',
-                    style: const TextStyle(
-                      fontSize: 18,
-                      fontWeight: FontWeight.bold,
-                      color: Colors.redAccent,
+                  Text('Producto', style: TextStyle(fontWeight: FontWeight.bold)),
+                  Text('Cant.', style: TextStyle(fontWeight: FontWeight.bold)),
+                ],
+              ),
+            ),
+            const Divider(height: 10, thickness: 1),
+            
+            // Lista de productos
+            ConstrainedBox(
+              constraints: const BoxConstraints(maxHeight: 250),
+              child: ListView(
+                shrinkWrap: true,
+                children: [
+                  ..._receiptItems.map(
+                    (item) => Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 4.0),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Expanded(
+                            child: Text(
+                              item.item,
+                              style: const TextStyle(fontWeight: FontWeight.w500),
+                            ),
+                          ),
+                          Text(
+                            '${item.qty}x',
+                            style: const TextStyle(color: Colors.grey),
+                          ),
+                        ],
+                      ),
                     ),
                   ),
                 ],
               ),
-              const SizedBox(height: 20),
-              ElevatedButton(
-                onPressed: () {
-                  Navigator.pop(context);
-                  _onItemTapped(2); // Navegar a la pestaña de IA (índice 2)
-                },
-                child: const Text('Analizar Nutrición y Menú'),
-              ),
-            ],
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Cerrar'),
-          ),
-        ],
+            ),
+            const Divider(height: 20, thickness: 2),
+            
+            
+            const SizedBox(height: 20),
+            ElevatedButton(
+  onPressed: () {
+    Navigator.pop(context); // Cierra el diálogo
+
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => IANutricionalScreen(scannedItems: _receiptItems),
       ),
     );
-  }
+  },
+  child: const Text('Analizar Nutrición y Menú'),
+),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('Cerrar'),
+        ),
+      ],
+    ),
+  );
+}
 
   Future<void> _logout() async {
     await FirebaseAuth.instance.signOut();

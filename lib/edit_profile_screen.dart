@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:intl/intl.dart'; // Para formatear la fecha
+import 'package:nutriticket/constants.dart';
 
 class EditProfileScreen extends StatefulWidget {
   const EditProfileScreen({super.key});
@@ -27,23 +28,6 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
 
   User? _currentUser;
   bool _isLoading = true;
-
-  // 1. MODIFICACIÓN: Corregir las opciones de género para que coincidan con los datos
-  final List<String> _genderOptions = [
-    'Hombre',
-    'Mujer',
-    'Otro',
-    'No especificar'
-  ];
-  final List<String> _dietaryOptions = [
-    'Ninguna',
-    'Vegetariana',
-    'Vegana',
-    'Sin Gluten',
-    'Keto',
-    'Paleo'
-  ];
-  final List<int> _householdSizes = [1, 2, 3, 4, 5, 6, 7, 8];
 
   @override
   void initState() {
@@ -243,7 +227,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                       initialValue: _selectedGender,
                       decoration: _buildInputDecoration(
                           label: 'Sexo', icon: Icons.wc_outlined),
-                      items: _genderOptions
+                      items: genderOptions
                           .map((gender) => DropdownMenuItem(
                                 value: gender,
                                 child: Text(gender),
@@ -277,31 +261,33 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                             fontSize: 20, fontWeight: FontWeight.bold)),
                     const SizedBox(height: 16),
                     DropdownButtonFormField<String>(
-                      initialValue: _selectedDietaryPreference,
-                      decoration: _buildInputDecoration(
-                          label: 'Tipo de Dieta',
-                          icon: Icons.restaurant_menu_outlined),
-                      items: _dietaryOptions
-                          .map((diet) => DropdownMenuItem(
-                                value: diet,
-                                child: Text(diet),
-                              ))
-                          .toList(),
-                      onChanged: (value) {
-                        setState(() {
-                          _selectedDietaryPreference = value;
-                        });
-                      },
-                      validator: (value) =>
-                          value == null ? 'Campo requerido' : null,
-                    ),
+  // Usamos el valor cargado de Firestore. Si es null, el campo estará vacío.
+  value: _selectedDietaryPreference, 
+  decoration: _buildInputDecoration(
+      label: 'Tipo de Dieta',
+      icon: Icons.restaurant_menu_outlined),
+  // items: Usamos la lista completa, incluyendo 'Ninguna'
+  items: dietaryOptions
+      .map((diet) => DropdownMenuItem(
+            value: diet,
+            child: Text(diet),
+          ))
+      .toList(),
+  onChanged: (value) {
+    setState(() {
+      _selectedDietaryPreference = value;
+    });
+  },
+  validator: (value) =>
+      value == null ? 'Campo requerido' : null,
+),
                     const SizedBox(height: 16),
                     DropdownButtonFormField<int>(
                       initialValue: _selectedHouseholdSize,
                       decoration: _buildInputDecoration(
                           label: 'Personas en Casa',
                           icon: Icons.groups_outlined),
-                      items: _householdSizes
+                      items: householdSizes
                           .map((size) => DropdownMenuItem(
                                 value: size,
                                 child: Text('$size persona(s)'),
