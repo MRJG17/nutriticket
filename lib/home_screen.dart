@@ -8,7 +8,7 @@ import 'package:image_picker/image_picker.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
 import 'package:mime/mime.dart';
-import 'package:nutriticket/main.dart'; // Para AuthWrapper
+// ⛔️ ELIMINAMOS EL IMPORT DE 'main.dart' que ya no se usa aquí
 import 'package:nutriticket/receipt_item.dart'; // Para el modelo de datos
 
 import 'perfil_screen.dart';
@@ -27,25 +27,24 @@ class _HomeScreenState extends State<HomeScreen> {
   bool _isLoading = false;
   List<ReceiptItem> _receiptItems = [];
 
-  // ⚠️ ¡REEMPLAZA "TU_CLAVE_AQUI" con tu clave real de la API de Gemini!
-  final String apiKey =
-      "AIzaSyBYS_97Q3VtHrdjpo9thLPSyNooICgYzEI"; // 🔴 ¡PON TU API KEY!
-
-  // ✅ CORRECCIÓN 1: Se usa 'v1' en lugar de 'v1beta'
+  // ... (apiKey y apiUrl se quedan igual) ...
+  final String apiKey = "AIzaSyBYS_97Q3VtHrdjpo9thLPSyNooICgYzEI";
   final String apiUrl =
       "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-05-20:generateContent";
 
   final List<Widget> _widgetOptions = [
-  const Center(child: Text('Inicio: Menú semanal')), // 0
-  const RecetasScreen(), // 1
-  const Center(child: Text('Presiona Escanear para comenzar.')), // 2
-  const PerfilScreen(), // 3
-];
+    const Center(child: Text('Inicio: Menú semanal')), // 0
+    const RecetasScreen(), // 1
+    const Center(child: Text('Presiona Escanear para comenzar.')), // 2
+    const PerfilScreen(), // 3
+  ];
 
   void _onItemTapped(int index) {
     setState(() => _selectedIndex = index);
   }
 
+  // ... (Todas las funciones de escaneo: _onScanPressed, _pickImage, _scanReceipt, _fetchWithExponentialBackoff, _showError, _showResultsDialog)
+  // ... (SE QUEDAN EXACTAMENTE IGUAL) ...
   // --- 1. CAPTURA DE IMAGEN ---
   void _onScanPressed() {
     showModalBottomSheet(
@@ -128,8 +127,6 @@ class _HomeScreenState extends State<HomeScreen> {
         },
       };
 
-      // ✅ CORRECCIÓN 2: 'responseMimeType' y 'responseSchema'
-      // están fuera de 'generationConfig' y ya NO están comentados.
       final payload = {
         "contents": [
           {
@@ -158,16 +155,14 @@ class _HomeScreenState extends State<HomeScreen> {
 
       if (response.statusCode == 200) {
         final jsonResponse = jsonDecode(response.body);
-        final jsonText =
-            jsonResponse['candidates'][0]['content']['parts'][0]['text']
-                as String;
+        final jsonText = jsonResponse['candidates'][0]['content']['parts'][0]
+            ['text'] as String;
 
         final List<dynamic> parsedJsonList = jsonDecode(jsonText);
 
         setState(() {
-          _receiptItems = parsedJsonList
-              .map((item) => ReceiptItem.fromJson(item))
-              .toList();
+          _receiptItems =
+              parsedJsonList.map((item) => ReceiptItem.fromJson(item)).toList();
         });
         if (mounted) _showResultsDialog();
       } else {
@@ -232,123 +227,101 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
-  // lib/home_screen.dart: dentro de _HomeScreenState
-
-void _showResultsDialog() {
-
-  showDialog(
-    context: context,
-    builder: (context) => AlertDialog(
-      title: const Text('Productos Extraídos por IA'),
-      content: SizedBox(
-        width: double.maxFinite,
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            // Encabezado de la lista simplificado
-            const Padding(
-              padding: EdgeInsets.symmetric(vertical: 4.0),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Text('Producto', style: TextStyle(fontWeight: FontWeight.bold)),
-                  Text('Cant.', style: TextStyle(fontWeight: FontWeight.bold)),
-                ],
+  void _showResultsDialog() {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Productos Extraídos por IA'),
+        content: SizedBox(
+          width: double.maxFinite,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              const Padding(
+                padding: EdgeInsets.symmetric(vertical: 4.0),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text('Producto',
+                        style: TextStyle(fontWeight: FontWeight.bold)),
+                    Text('Cant.',
+                        style: TextStyle(fontWeight: FontWeight.bold)),
+                  ],
+                ),
               ),
-            ),
-            const Divider(height: 10, thickness: 1),
-            
-            // Lista de productos
-            ConstrainedBox(
-              constraints: const BoxConstraints(maxHeight: 250),
-              child: ListView(
-                shrinkWrap: true,
-                children: [
-                  ..._receiptItems.map(
-                    (item) => Padding(
-                      padding: const EdgeInsets.symmetric(vertical: 4.0),
-                      child: Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          Expanded(
-                            child: Text(
-                              item.item,
-                              style: const TextStyle(fontWeight: FontWeight.w500),
+              const Divider(height: 10, thickness: 1),
+              ConstrainedBox(
+                constraints: const BoxConstraints(maxHeight: 250),
+                child: ListView(
+                  shrinkWrap: true,
+                  children: [
+                    ..._receiptItems.map(
+                      (item) => Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 4.0),
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Expanded(
+                              child: Text(
+                                item.item,
+                                style: const TextStyle(
+                                    fontWeight: FontWeight.w500),
+                              ),
                             ),
-                          ),
-                          Text(
-                            '${item.qty}x',
-                            style: const TextStyle(color: Colors.grey),
-                          ),
-                        ],
+                            Text(
+                              '${item.qty}x',
+                              style: const TextStyle(color: Colors.grey),
+                            ),
+                          ],
+                        ),
                       ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
-            ),
-            const Divider(height: 20, thickness: 2),
-            
-            
-            const SizedBox(height: 20),
-            ElevatedButton(
-  onPressed: () {
-    Navigator.pop(context); // Cierra el diálogo
+              const Divider(height: 20, thickness: 2),
+              const SizedBox(height: 20),
+              ElevatedButton(
+                onPressed: () {
+                  Navigator.pop(context); // Cierra el diálogo
 
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (context) => IANutricionalScreen(scannedItems: _receiptItems),
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) =>
+                          IANutricionalScreen(scannedItems: _receiptItems),
+                    ),
+                  );
+                },
+                child: const Text('Analizar Nutrición y Menú'),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cerrar'),
+          ),
+        ],
       ),
     );
-  },
-  child: const Text('Analizar Nutrición y Menú'),
-),
-          ],
-        ),
-      ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.pop(context),
-          child: const Text('Cerrar'),
-        ),
-      ],
-    ),
-  );
-}
-
-  Future<void> _logout() async {
-    await FirebaseAuth.instance.signOut();
-    if (context.mounted) {
-      Navigator.of(context).pushAndRemoveUntil(
-        MaterialPageRoute(builder: (_) => const AuthWrapper()),
-        (_) => false,
-      );
-    }
   }
+
+  // ⛔️ ELIMINAMOS LA FUNCIÓN _logout() DE AQUÍ. LA MOVEREMOS A perfil_screen.dart ⛔️
 
   @override
   Widget build(BuildContext context) {
-    final bool isProfileTab = _selectedIndex == 3;
-    final String title = isProfileTab ? 'Mi Perfil' : 'NutriTicket';
-    final List<Widget> actions = isProfileTab
-        ? [
-            IconButton(
-              icon: const Icon(Icons.logout),
-              onPressed: _logout, // Usar la función de logout
-            ),
-          ]
-        : [];
-
     return Scaffold(
-      appBar: AppBar(
-        title: Text(title),
-        backgroundColor: isProfileTab ? const Color(0xFF4CAF50) : null,
-        foregroundColor: isProfileTab ? Colors.white : null,
-        elevation: isProfileTab ? 0 : null,
-        actions: actions,
-      ),
+      // --- ✅ MODIFICACIÓN AQUÍ ---
+      // Oculta el AppBar si el índice es 3 (Perfil), de lo contrario muéstralo.
+      appBar: _selectedIndex == 3
+          ? null
+          : AppBar(
+              title: const Text('NutriTicket'),
+            ),
+      // --- ✅ FIN DE LA MODIFICACIÓN ---
       body: Stack(
         children: [
           _widgetOptions[_selectedIndex],

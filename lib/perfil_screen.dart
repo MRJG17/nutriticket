@@ -1,12 +1,14 @@
 // lib/perfil_screen.dart
 
-// 1. MODIFICACIÓN: Se eliminan imports que ya no se usan (dart:io y image_picker)
+import 'dart:async'; // IMPORTAR ASYNC para StreamSubscription
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_storage/firebase_storage.dart';
-import 'package:nutriticket/edit_profile_screen.dart'; // Importa la pantalla de edición
-import 'package:nutriticket/main.dart'; // Para el AuthWrapper
+import 'package:nutriticket/edit_profile_screen.dart';
+import 'package:nutriticket/main.dart';
+import 'package:nutriticket/login_screen.dart';
+import 'package:nutriticket/register_screen.dart';
 
 class PerfilScreen extends StatefulWidget {
   const PerfilScreen({super.key});
@@ -18,9 +20,12 @@ class PerfilScreen extends StatefulWidget {
 class _PerfilScreenState extends State<PerfilScreen> {
   User? _currentUser;
   Map<String, dynamic>? _userData;
-  bool _isLoading = true;
+  bool _isLoading = true; // Empezamos como true
 
-  // Asegúrate que esta ruta sea la correcta en tu pubspec.yaml
+  // VARIABLE PARA LA SUSCRIPCIÓN
+  StreamSubscription<User?>? _authSubscription;
+
+  // Lista de avatares
   final List<String> _avatarList = [
     'assets/avatars/a1.png',
     'assets/avatars/a2.png',
@@ -32,15 +37,43 @@ class _PerfilScreenState extends State<PerfilScreen> {
     'assets/avatars/a8.png',
   ];
 
+  // MODIFICAR initState() PARA ESCUCHAR CAMBIOS
   @override
   void initState() {
     super.initState();
-    _currentUser = FirebaseAuth.instance.currentUser;
-    _fetchUserData();
+
+    // Nos suscribimos a los cambios de estado de autenticación
+    _authSubscription =
+        FirebaseAuth.instance.authStateChanges().listen((User? user) {
+      if (!mounted) return; // Asegurarse que el widget todavía existe
+
+      setState(() {
+        _currentUser = user; // Actualiza el usuario actual
+
+        if (user != null && !user.isAnonymous) {
+          // Si es un usuario real, mostramos carga y buscamos sus datos
+          _isLoading = true;
+          _userData = null; // Limpiamos datos antiguos
+          _fetchUserData(); // Buscamos los nuevos datos
+        } else {
+          // Si es un invitado o nulo, simplemente dejamos de cargar
+          _isLoading = false;
+          _userData = null;
+        }
+      });
+    });
+  }
+
+  // AÑADIR dispose() PARA LIMPIAR LA SUSCRIPCIÓN
+  @override
+  void dispose() {
+    _authSubscription?.cancel(); // Cancela el "oyente" para evitar errores
+    super.dispose();
   }
 
   Future<void> _fetchUserData() async {
-    if (_currentUser == null) {
+    // Esta función ya es segura porque _currentUser es actualizado por el listener
+    if (_currentUser == null || _currentUser!.isAnonymous) {
       if (mounted) setState(() => _isLoading = false);
       return;
     }
@@ -51,22 +84,15 @@ class _PerfilScreenState extends State<PerfilScreen> {
           .doc(_currentUser!.uid)
           .get();
 
-      if (userDoc.exists) {
-        if (mounted) {
-          setState(() {
-            _userData = userDoc.data() as Map<String, dynamic>;
-            _isLoading = false;
-          });
-        }
-      } else {
-        if (mounted) {
-          setState(() {
-            _isLoading = false;
-            _userData = {};
-          });
-        }
+      if (userDoc.exists && mounted) {
+        setState(() {
+          _userData = userDoc.data() as Map<String, dynamic>;
+        });
       }
     } catch (e) {
+      // El print está bien para depuración
+      print("Error en fetchUserData: $e");
+    } finally {
       if (mounted) {
         setState(() {
           _isLoading = false;
@@ -75,8 +101,18 @@ class _PerfilScreenState extends State<PerfilScreen> {
     }
   }
 
-  // 2. MODIFICACIÓN: Se elimina la función _pickAndUploadImage()
-  // Ya no la necesitamos, la hemos borrado.
+  // --- FUNCIÓN DE LOGOUT ---
+  Future<void> _logout() async {
+    await FirebaseAuth.instance.signOut();
+    if (context.mounted) {
+      Navigator.of(context).pushAndRemoveUntil(
+        MaterialPageRoute(builder: (_) => const AuthWrapper()),
+        (_) => false,
+      );
+    }
+  }
+
+  // --- ✅ INICIO DE FUNCIONES AUXILIARES COMPLETAS ---
 
   void _showAvatarSelectionDialog() {
     showDialog(
@@ -101,11 +137,9 @@ class _PerfilScreenState extends State<PerfilScreen> {
                     Navigator.of(context).pop();
                     _updateProfileWithAvatar(assetPath);
                   },
-                  // 3. MODIFICACIÓN: Se añade Transform.scale para hacer "zoom"
                   child: ClipOval(
                     child: Transform.scale(
-                      scale:
-                          1.3, // <-- ¡Este es el "zoom"! Ajusta si es necesario
+                      scale: 1.3,
                       child: Image.asset(
                         assetPath,
                         fit: BoxFit.cover,
@@ -183,7 +217,6 @@ class _PerfilScreenState extends State<PerfilScreen> {
     }
     if (url.startsWith('http')) {
       // Es una foto subida (URL de Firebase Storage)
-      // Mantenemos esta lógica por si el usuario ya tenía una foto de antes
       return Image.network(
         url,
         fit: BoxFit.cover,
@@ -209,9 +242,8 @@ class _PerfilScreenState extends State<PerfilScreen> {
     }
     if (url.startsWith('assets/')) {
       // Es un avatar local
-      // 3. MODIFICACIÓN: Se añade Transform.scale también aquí
       return Transform.scale(
-        scale: 1.3, // <-- ¡Este es el "zoom"!
+        scale: 1.3,
         child: Image.asset(
           url,
           fit: BoxFit.cover,
@@ -220,6 +252,7 @@ class _PerfilScreenState extends State<PerfilScreen> {
         ),
       );
     }
+    // Caso por defecto si la URL no es http ni assets
     return Icon(
       Icons.person,
       size: radius * 1.15,
@@ -227,12 +260,21 @@ class _PerfilScreenState extends State<PerfilScreen> {
     );
   }
 
+  // --- ✅ FIN DE FUNCIONES AUXILIARES ---
+
   @override
   Widget build(BuildContext context) {
+    // Ahora el build reaccionará automáticamente a _isLoading
     if (_isLoading) {
       return const Center(child: CircularProgressIndicator());
     }
 
+    // --- LÓGICA DE VISTA (INVITADO VS. USUARIO) ---
+    if (_currentUser == null || _currentUser!.isAnonymous) {
+      return _buildGuestScreen(context);
+    }
+
+    // --- PERFIL DE USUARIO LOGUEADO ---
     final userData = _userData ?? {};
 
     final dob = (userData['dateOfBirth'] != null)
@@ -256,6 +298,18 @@ class _PerfilScreenState extends State<PerfilScreen> {
 
     return Scaffold(
       backgroundColor: Colors.white,
+      appBar: AppBar(
+        title: const Text('Mi Perfil'),
+        backgroundColor: const Color(0xFF4CAF50),
+        foregroundColor: Colors.white,
+        elevation: 0,
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.logout),
+            onPressed: _logout,
+          ),
+        ],
+      ),
       body: RefreshIndicator(
         onRefresh: _fetchUserData,
         child: SingleChildScrollView(
@@ -283,9 +337,8 @@ class _PerfilScreenState extends State<PerfilScreen> {
                         ),
                       ),
                     ),
-                    // 4. MODIFICACIÓN: Icono y acción del botón
                     GestureDetector(
-                      onTap: _showAvatarSelectionDialog, // <-- CAMBIADO
+                      onTap: _showAvatarSelectionDialog,
                       child: Container(
                         padding: const EdgeInsets.all(8),
                         decoration: const BoxDecoration(
@@ -293,7 +346,7 @@ class _PerfilScreenState extends State<PerfilScreen> {
                           shape: BoxShape.circle,
                         ),
                         child: const Icon(
-                          Icons.edit_outlined, // <-- CAMBIADO
+                          Icons.edit_outlined,
                           color: Colors.white,
                           size: 20,
                         ),
@@ -308,8 +361,6 @@ class _PerfilScreenState extends State<PerfilScreen> {
                       fontSize: 24, fontWeight: FontWeight.bold),
                 ),
                 const SizedBox(height: 10),
-
-                // ... (El resto del código de Cards, botones, etc. no cambia)
                 Card(
                   elevation: 4,
                   shape: RoundedRectangleBorder(
@@ -400,6 +451,93 @@ class _PerfilScreenState extends State<PerfilScreen> {
     );
   }
 
+  // --- WIDGET DE INVITADO ---
+  Widget _buildGuestScreen(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Invitado'),
+        backgroundColor: const Color(0xFF4CAF50),
+        foregroundColor: Colors.white,
+        elevation: 0,
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.logout),
+            onPressed: _logout,
+          ),
+        ],
+      ),
+      body: Center(
+        child: Padding(
+          padding: const EdgeInsets.all(32.0),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(
+                Icons.person_pin,
+                size: 100,
+                color: Colors.grey.shade400,
+              ),
+              const SizedBox(height: 20),
+              const Text(
+                'Estás en Modo Invitado',
+                style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
+              ),
+              const SizedBox(height: 10),
+              Text(
+                'Inicia sesión o regístrate para guardar tu perfil y sincronizar tus recetas.',
+                textAlign: TextAlign.center,
+                style: TextStyle(fontSize: 16, color: Colors.grey.shade700),
+              ),
+              const SizedBox(height: 40),
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton.icon(
+                  onPressed: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                          builder: (context) => const LoginScreen()),
+                    );
+                  },
+                  icon: const Icon(Icons.login),
+                  label: const Text('Iniciar Sesión'),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF4CAF50),
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                    textStyle: const TextStyle(fontSize: 18),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 12),
+              SizedBox(
+                width: double.infinity,
+                child: OutlinedButton(
+                  onPressed: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                          builder: (context) => const RegisterScreen()),
+                    );
+                  },
+                  child: const Text('Crear una Cuenta'),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: const Color(0xFF4CAF50),
+                    side: const BorderSide(color: Color(0xFF4CAF50)),
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                    textStyle: const TextStyle(fontSize: 18),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  // --- ✅ INICIO DE WIDGETS AUXILIARES COMPLETOS ---
+
   Widget _buildProfileInfoRow(IconData icon, String label, String value) {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 8.0),
@@ -429,6 +567,8 @@ class _PerfilScreenState extends State<PerfilScreen> {
   }
 
   Future<void> _showDeleteAccountDialog() async {
+    // Agregué la verificación !mounted aquí
+    if (!mounted) return;
     final BuildContext dialogContext = context;
 
     return showDialog<void>(
@@ -510,4 +650,5 @@ class _PerfilScreenState extends State<PerfilScreen> {
       },
     );
   }
+  // --- ✅ FIN DE WIDGETS AUXILIARES ---
 }

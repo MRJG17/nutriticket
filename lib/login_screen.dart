@@ -1,3 +1,4 @@
+// lib/login_screen.dart
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'register_screen.dart'; // Importamos la pantalla de registro
@@ -19,6 +20,7 @@ class _LoginScreenState extends State<LoginScreen> {
     super.dispose();
   }
 
+  // --- FUNCIÓN DE LOGIN (SIN CAMBIOS) ---
   Future<void> _loginUser() async {
     // Muestra un indicador de carga
     showDialog(
@@ -60,6 +62,40 @@ class _LoginScreenState extends State<LoginScreen> {
     }
   }
 
+  // --- ✅ 1. NUEVA FUNCIÓN PARA MODO INVITADO ---
+  Future<void> _signInAsGuest() async {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => const Center(child: CircularProgressIndicator()),
+    );
+
+    try {
+      // Usamos la autenticación anónima de Firebase
+      await FirebaseAuth.instance.signInAnonymously();
+
+      // Cerramos todo, el AuthWrapper nos redirigirá al HomeScreen
+      if (mounted) {
+        Navigator.of(context).popUntil((route) => route.isFirst);
+      }
+    } on FirebaseAuthException catch (e) {
+      if (mounted) Navigator.pop(context); // Oculta el diálogo de carga
+
+      String errorMessage = 'No se pudo conectar como invitado.';
+      // Este error es común si no has habilitado el método anónimo en la consola de Firebase
+      if (e.code == 'operation-not-allowed') {
+        errorMessage = 'El modo invitado no está habilitado en el servidor.';
+      }
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(errorMessage), backgroundColor: Colors.red),
+        );
+      }
+    }
+  }
+  // --- ✅ FIN DE LA NUEVA FUNCIÓN ---
+
   @override
   Widget build(BuildContext context) {
     final screenSize = MediaQuery.of(context).size;
@@ -68,7 +104,6 @@ class _LoginScreenState extends State<LoginScreen> {
 
     return Scaffold(
       backgroundColor: Colors.white,
-      // ✅ INICIO DE LA MODIFICACIÓN: Se añade un AppBar
       appBar: AppBar(
         backgroundColor: Colors.white,
         elevation: 0,
@@ -76,14 +111,30 @@ class _LoginScreenState extends State<LoginScreen> {
           icon: const Icon(Icons.arrow_back, color: Colors.black),
           onPressed: () => Navigator.pop(context),
         ),
+        // --- ✅ 2. AÑADIR EL BOTÓN DE "MODO INVITADO" ---
+        actions: [
+          TextButton(
+            onPressed: _signInAsGuest, // Llama a la nueva función
+            child: const Text(
+              'Modo Invitado',
+              style: TextStyle(
+                color: Color(0xFF4CAF50),
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+          ),
+          const SizedBox(width: 10),
+        ],
+        // --- ✅ FIN DE LA MODIFICACIÓN ---
       ),
-      // ✅ FIN DE LA MODIFICACIÓN
       body: Center(
         child: SingleChildScrollView(
           padding: const EdgeInsets.symmetric(horizontal: 24.0),
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
+              // ... (El resto de la UI: logo, campos de texto, botones)
+              // ... (NO HAY MÁS CAMBIOS EN EL BODY) ...
               ConstrainedBox(
                 constraints: const BoxConstraints(
                   maxHeight: 220,
