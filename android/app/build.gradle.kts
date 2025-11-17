@@ -45,3 +45,13 @@ android {
 flutter {
     source = "../.."
 }
+
+dependencies {
+    // (Probablemente ya tengas otras líneas aquí, déjalas)
+    // implementation("org.jetbrains.kotlin:kotlin-stdlib-jdk7:...")
+    
+    // --- ✅ AÑADE ESTAS DOS LÍNEAS ---
+    implementation("androidx.appcompat:appcompat:1.3.1")
+    implementation("com.google.android.material:material:1.5.0")
+    // --- ✅ FIN DE LAS LÍNEAS ---
+}
