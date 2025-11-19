@@ -15,12 +15,14 @@ class SuggestedRecipeDetail {
   final String title;
   final String adaptedContent; 
   final List<String> matchingIngredients; 
+  final String imageUrl;
   final String recipeOriginalId; 
 
   SuggestedRecipeDetail({
     required this.title,
     required this.adaptedContent,
     required this.matchingIngredients,
+    required this.imageUrl, // ⭐️ CORRECCIÓN: Agregar 'imageUrl' al constructor
     required this.recipeOriginalId,
   });
 }
@@ -51,7 +53,10 @@ class _IANutricionalScreenState extends State<IANutricionalScreen> {
   String? _errorMessage;
 
   final String apiKey = "AIzaSyBYS_97Q3VtHrdjpo9thLPSyNooICgYzEI"; 
-  final String apiUrl = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-05-20:generateContent";
+  final String apiUrl = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent";
+
+  final List<String> _menuTypeOptions = ['Plan Semanal', 'Receta Única'];
+  String _menuType = 'Receta Única'; // Estado actual
 
   final List<String> _masterDietOptions = [
     'Ninguna', 
@@ -130,6 +135,140 @@ class _IANutricionalScreenState extends State<IANutricionalScreen> {
     }
   }
 
+  // --- Lógica del Plan Semanal (Generación de Calendario) ---
+  Future<void> _generateWeeklyPlan(
+      List<ScoredRecipe> candidateRecipesInfo, String availableItemsString) async {
+    
+    // 1. Preparamos el JSON de las 3 mejores recetas
+    final List<Map<String, dynamic>> selectedRecipes = candidateRecipesInfo
+        .map((s) => s.recipe.toJson())
+        .toList();
+        
+    final selectedRecipesJson = jsonEncode(selectedRecipes);
+    
+    // 2. PROMPT DE GENERACIÓN DE CALENDARIO
+    final prompt = """
+      Eres un planificador de comidas IA. Genera un plan de menú semanal (Lunes a Domingo) para $_numServings persona(s) y la dieta '$_currentDiet'.
+
+      Debes utilizar las siguientes recetas proporcionadas en JSON como platos fuertes para COMIDA y CENA a lo largo de la semana. Puedes repetir cualquiera de ellas:
+      Recetas base (JSON): $selectedRecipesJson
+
+      Para DESAYUNO, sugiere ideas sencillas que complementen la dieta.
+
+      Devuelve el resultado en formato de texto simple. Para cada día, lista Desayuno, Comida y Cena.
+      Usa el siguiente formato:
+      Lunes:
+        Desayuno: [Desayuno simple sugerido]
+        Comida: [Plato fuerte USANDO una de las Recetas base. Indica si hay sobras.]
+        Cena: [Plato fuerte USANDO una de las Recetas base. Indica si hay sobras.]
+      Martes:
+        ...
+      (Continúa hasta el Domingo)
+    """;
+
+    try {
+      final payload = {
+        "contents": [
+          {"role": "user", "parts": [
+            {"text": prompt}
+          ]}
+        ],
+        "generationConfig": {
+          "temperature": 0.6, 
+        },
+      };
+
+      final response = await _fetchWithExponentialBackoff(
+        Uri.parse('$apiUrl?key=$apiKey'),
+        body: jsonEncode(payload),
+      );
+
+      if (response.statusCode == 200) {
+        final jsonResponse = jsonDecode(utf8.decode(response.bodyBytes));
+        final generatedText = jsonResponse['candidates'][0]['content']['parts'][0]['text'] as String;
+        
+        // Guardamos la respuesta como una ÚNICA "receta" para el Plan Semanal
+        if (mounted) {
+          _suggestedRecipes.add(SuggestedRecipeDetail(
+            title: "Plan Semanal para $_currentDiet",
+            adaptedContent: generatedText, // Contiene el menú completo
+            matchingIngredients: [], 
+            imageUrl: candidateRecipesInfo.isNotEmpty ? candidateRecipesInfo.first.recipe.imageUrl : '', // ⭐️ Foto de la primera receta
+            recipeOriginalId: candidateRecipesInfo.isNotEmpty ? candidateRecipesInfo.first.recipe.id : '', // ⭐️ ID para referencia
+          ));
+        }
+      } else {
+        throw Exception('API falló con código ${response.statusCode}. Mensaje: ${response.body}');
+      }
+    } catch (e) {
+      _showError('Fallo al generar el plan semanal: ${e.toString()}');
+    }
+  }
+
+  // --- Lógica de Recetas Únicas (Adaptación de Porciones) ---
+  Future<void> _generateSingleRecipes(
+      List<ScoredRecipe> candidateRecipesInfo, String availableItemsString) async {
+    for (final scoredRecipe in candidateRecipesInfo) {
+      final recipe = scoredRecipe.recipe; 
+      final matchingIngredients = scoredRecipe.matches; 
+      final recipeJson = jsonEncode(recipe.toJson());
+      
+      final prompt = """
+        Eres un chef IA especializado en adaptar recetas.
+        
+        Tu tarea es adaptar la siguiente receta (proporcionada en formato JSON) para $_numServings persona(s) y considerar el siguiente tipo de dieta: '$_currentDiet'.
+
+        Receta JSON:
+        $recipeJson
+
+        Ingredientes comprados disponibles (contexto):
+        [$availableItemsString]
+        
+        1. **Ajusta las cantidades de los ingredientes** de la receta para el número de raciones deseado (original: ${recipe.baseServings}, deseado: $_numServings).
+        2. **Genera la receta completa** en formato de texto limpio.
+        3. El contenido debe incluir: El título original de la receta, una Descripción Breve, una sección de INGREDITENTES ADAPTADOS (con las nuevas cantidades y unidades), y una sección de PASOS.
+      """;
+
+      try {
+        final payload = {
+          "contents": [
+            {"role": "user", "parts": [
+              {"text": prompt}
+            ]}
+          ],
+          "generationConfig": {
+            "temperature": 0.5,
+          },
+        };
+
+        final response = await _fetchWithExponentialBackoff(
+          Uri.parse('$apiUrl?key=$apiKey'),
+          body: jsonEncode(payload),
+        );
+
+        if (response.statusCode == 200) {
+          final jsonResponse = jsonDecode(utf8.decode(response.bodyBytes));
+          final generatedText = jsonResponse['candidates'][0]['content']['parts'][0]['text'] as String;
+          
+          if (mounted) {
+            _suggestedRecipes.add(SuggestedRecipeDetail(
+              title: recipe.title, 
+              adaptedContent: generatedText,
+              matchingIngredients: matchingIngredients, 
+              imageUrl: recipe.imageUrl, // ⭐️ AÑADIDO
+              recipeOriginalId: recipe.id,
+            ));
+          }
+        } else {
+          print('Error API al adaptar ${recipe.title}: ${response.statusCode} - ${response.body}');
+        }
+      } catch (e) {
+        print('Excepción al adaptar ${recipe.title}: $e');
+        _showError('Fallo al contactar a la IA: ${e.toString()}');
+      }
+    }
+  }
+
 
   // --- 2. LÓGICA DE BÚSQUEDA Y FILTRO ---
   List<ScoredRecipe> _filterRecipes(List<ReceiptItem> items, String diet, int servings) {
@@ -200,65 +339,13 @@ class _IANutricionalScreenState extends State<IANutricionalScreen> {
     // 2. Preparar el contexto de los ingredientes disponibles
     final availableItemsString = widget.scannedItems.map((i) => '${i.item} (x${i.qty})').join(', ');
     
-    // 3. Adaptar CADA receta candidata con Gemini
-    for (final scoredRecipe in candidateRecipesInfo) {
-      final recipe = scoredRecipe.recipe; 
-      final matchingIngredients = scoredRecipe.matches; 
-      final recipeJson = jsonEncode(recipe.toJson());
-      
-      final prompt = """
-        Eres un chef IA especializado en adaptar recetas.
-        
-        Tu tarea es adaptar la siguiente receta (proporcionada en formato JSON) para $_numServings persona(s) y considerar el siguiente tipo de dieta: '$_currentDiet'.
-
-        Receta JSON:
-        $recipeJson
-
-        Ingredientes comprados disponibles (contexto):
-        [$availableItemsString]
-        
-        1. **Ajusta las cantidades de los ingredientes** de la receta para el número de raciones deseado (original: ${recipe.baseServings}, deseado: $_numServings).
-        2. **Genera la receta completa** en formato de texto limpio.
-        3. El contenido debe incluir: El título original de la receta, una Descripción Breve, una sección de INGREDITENTES ADAPTADOS (con las nuevas cantidades y unidades), y una sección de PASOS.
-      """;
-
-      try {
-        final payload = {
-          "contents": [
-            {"role": "user", "parts": [
-              {"text": prompt}
-            ]}
-          ],
-          "generationConfig": {
-            "temperature": 0.5,
-          },
-        };
-
-        final response = await _fetchWithExponentialBackoff(
-          Uri.parse('$apiUrl?key=$apiKey'),
-          body: jsonEncode(payload),
-        );
-
-        if (response.statusCode == 200) {
-          final jsonResponse = jsonDecode(utf8.decode(response.bodyBytes));
-          final generatedText = jsonResponse['candidates'][0]['content']['parts'][0]['text'] as String;
-          
-          if (mounted) {
-            _suggestedRecipes.add(SuggestedRecipeDetail(
-              title: recipe.title, 
-              adaptedContent: generatedText,
-              matchingIngredients: matchingIngredients, 
-              recipeOriginalId: recipe.id,
-            ));
-          }
-        } else {
-          print('Error API al adaptar ${recipe.title}: ${response.statusCode} - ${response.body}');
-        }
-      } catch (e) {
-        print('Excepción al adaptar ${recipe.title}: $e');
-        _showError('Fallo al contactar a la IA: ${e.toString()}');
-      }
+    // ⭐️ DECISIÓN DE FLUJO ⭐️
+    if (_menuType == 'Plan Semanal') {
+      await _generateWeeklyPlan(candidateRecipesInfo, availableItemsString);
+    } else {
+      await _generateSingleRecipes(candidateRecipesInfo, availableItemsString);
     }
+    
     
     if (_suggestedRecipes.isEmpty && _errorMessage == null) {
       _errorMessage = 'Fallo la adaptación de todas las recetas candidatas o la IA no pudo procesar la solicitud.';
@@ -308,7 +395,51 @@ class _IANutricionalScreenState extends State<IANutricionalScreen> {
   // WIDGETS DE VISUALIZACIÓN DE RESULTADOS
   // ------------------------------------------------------------
 
+  // Vista para Plan Semanal
+  Widget _buildWeeklyPlanView(SuggestedRecipeDetail menuResult) {
+    final List<String> days = menuResult.adaptedContent.split(RegExp(r'\n(?=Lunes|Martes|Miércoles|Jueves|Viernes|Sábado|Domingo)', caseSensitive: false));
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          menuResult.title,
+          style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.blueGrey),
+        ),
+        const Divider(),
+        ...days.map((dayPlan) {
+          if (dayPlan.trim().isEmpty) return const SizedBox.shrink();
+          
+          final parts = dayPlan.trim().split(':');
+          final day = parts[0].trim().replaceAll('\n', '');
+          final content = parts.length > 1 ? parts.sublist(1).join(':').trim() : 'Contenido no especificado.';
+          
+          return Padding(
+            padding: const EdgeInsets.only(bottom: 8.0),
+            child: ExpansionTile(
+              title: Text(day, style: const TextStyle(fontWeight: FontWeight.bold)),
+              trailing: const Icon(Icons.calendar_today, color: Colors.green), 
+              children: <Widget>[
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
+                  child: Text(content, style: const TextStyle(fontSize: 14)),
+                ),
+              ],
+            ),
+          );
+        }).toList(),
+      ],
+    );
+  }
+
+  // Vista para Recetas Únicas (Horizontal Scroll)
   Widget _buildRecipeListView() {
+    // ⭐️ Si es Plan Semanal, solo hay un elemento, lo renderizamos con la vista de menú ⭐️
+    if (_menuType == 'Plan Semanal' && _suggestedRecipes.isNotEmpty) {
+      return _buildWeeklyPlanView(_suggestedRecipes.first);
+    }
+
+    // Si es Receta Única, renderizamos el scroll horizontal
     return SizedBox(
       height: 350,
       child: ListView.builder(
@@ -321,10 +452,13 @@ class _IANutricionalScreenState extends State<IANutricionalScreen> {
           final matchingIngredients = adaptedResult.matchingIngredients;
           final originalId = adaptedResult.recipeOriginalId;
 
+          // Intenta encontrar la descripción
           final recipeLines = recipeContent.split('\n').map((l) => l.trim()).where((l) => l.isNotEmpty).toList();
           final titleLine = recipeLines.firstWhere((line) => line.toUpperCase().contains(recipeTitle.toUpperCase()), orElse: () => recipeTitle);
           final descriptionIndex = recipeLines.indexOf(titleLine) + 1;
           final recipeDescription = descriptionIndex < recipeLines.length ? recipeLines[descriptionIndex] : 'Receta adaptada por IA.';
+          
+          final imageUrl = adaptedResult.imageUrl; // ⭐️ La URL ahora es accesible
 
           return GestureDetector(
             onTap: () {
@@ -352,9 +486,33 @@ class _IANutricionalScreenState extends State<IANutricionalScreen> {
                   children: [
                     Container(
                       height: 120,
-                      color: Colors.lightGreen.shade100,
-                      alignment: Alignment.center,
-                      child: const Icon(Icons.food_bank, size: 60, color: Colors.green),
+                      // ⭐️ Usamos Image.network si la URL es válida ⭐️
+                      child: imageUrl.isNotEmpty 
+                        ? Image.network(
+                            imageUrl,
+                            fit: BoxFit.cover,
+                            width: double.infinity,
+                            loadingBuilder: (context, child, loadingProgress) {
+                              if (loadingProgress == null) return child;
+                              return Container(
+                                color: Colors.lightGreen.shade100,
+                                alignment: Alignment.center,
+                                child: const CircularProgressIndicator(color: Colors.green),
+                              );
+                            },
+                            errorBuilder: (context, error, stackTrace) {
+                              return Container(
+                                color: Colors.lightGreen.shade100,
+                                alignment: Alignment.center,
+                                child: const Icon(Icons.broken_image, size: 60, color: Colors.red),
+                              );
+                            },
+                          )
+                        : Container( // Placeholder si no hay URL
+                            color: Colors.lightGreen.shade100,
+                            alignment: Alignment.center,
+                            child: const Icon(Icons.food_bank, size: 60, color: Colors.green),
+                          ),
                     ),
                     Padding(
                       padding: const EdgeInsets.only(top: 8.0, left: 12.0, right: 12.0),
@@ -433,7 +591,7 @@ class _IANutricionalScreenState extends State<IANutricionalScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Recetas Adaptadas por IA')),
+      appBar: AppBar(title: const Text('IA Nutricional')),
       body: _buildBody(),
     );
   }
@@ -484,9 +642,11 @@ class _IANutricionalScreenState extends State<IANutricionalScreen> {
 
           const SizedBox(height: 30),
 
-          const Text(
-            'Recetas Sugeridas (Adaptadas por Gemini):',
-            style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Colors.green),
+          Text(
+            _menuType == 'Plan Semanal' 
+              ? 'Menú Semanal Sugerido:' 
+              : 'Recetas Sugeridas (Adaptadas por Gemini):',
+            style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Colors.green),
           ),
           const Divider(),
 
@@ -510,7 +670,25 @@ class _IANutricionalScreenState extends State<IANutricionalScreen> {
             const Text('Ajustar Adaptación:', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
             const SizedBox(height: 10),
 
-            // Selector de Dieta
+            // Selector de Modo (Plan Semanal / Receta Única)
+            DropdownButtonFormField<String>(
+              decoration: const InputDecoration(labelText: 'Modo de Sugerencia'),
+              value: _menuType,
+              items: _menuTypeOptions 
+                  .map((label) => DropdownMenuItem(value: label, child: Text(label)))
+                  .toList(),
+              onChanged: (value) {
+                if (value != null) {
+                  setState(() {
+                    _menuType = value;
+                  });
+                  _generateRecipes(); 
+                }
+              },
+            ),
+            const SizedBox(height: 10),
+
+            // ⭐️ Selector de Dieta (Faltaba en la versión anterior) ⭐️
             DropdownButtonFormField<String>(
               decoration: InputDecoration(labelText: 'Tipo de Dieta (Actual: $_currentDiet)'),
               value: _currentDiet,

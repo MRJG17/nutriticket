@@ -9,6 +9,7 @@ class Recipe {
   final List<Ingredient> ingredients;
   final String instructions;
   final List<String> tags; 
+  final String mealType;
 
   Recipe({
     required this.id,
@@ -19,6 +20,7 @@ class Recipe {
     required this.ingredients,
     required this.instructions,
     required this.tags,
+    required this.mealType,
   });
 
   String get ingredientNames => ingredients.map((i) => i.name.toLowerCase()).join(', ');
@@ -49,6 +51,7 @@ class Recipe {
       baseServings: servings,
       instructions: data['instructions'] ?? 'Pasos no disponibles.',
       tags: List<String>.from(data['tags'] ?? []),
+      mealType: data['mealType'] ?? 'General',
       ingredients: ingredientList.map((i) => Ingredient.fromMap(i as Map<String, dynamic>)).toList(),
     );
   }

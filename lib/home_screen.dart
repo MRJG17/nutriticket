@@ -30,7 +30,7 @@ class _HomeScreenState extends State<HomeScreen> {
   // ... (apiKey y apiUrl se quedan igual) ...
   final String apiKey = "AIzaSyBYS_97Q3VtHrdjpo9thLPSyNooICgYzEI";
   final String apiUrl =
-      "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-05-20:generateContent";
+      "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent";
 
   final List<Widget> _widgetOptions = [
     const Center(child: Text('Inicio: Menú semanal')), // 0
