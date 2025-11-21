@@ -1,22 +1,22 @@
 // lib/ia_nutricional_screen.dart
 
 import 'package:flutter/material.dart';
-import 'package:nutriticket/receipt_item.dart'; 
+import 'package:nutriticket/receipt_item.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
-import 'package:cloud_firestore/cloud_firestore.dart'; 
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:nutriticket/recipe_detail_screen.dart'; 
-import 'package:nutriticket/recipe.dart'; 
-
+import 'package:nutriticket/recipe_detail_screen.dart';
+import 'package:nutriticket/recipe.dart';
+import 'package:nutriticket/custom_loader.dart';
 
 // Clase para manejar el resultado adaptado por Gemini
 class SuggestedRecipeDetail {
   final String title;
-  final String adaptedContent; 
-  final List<String> matchingIngredients; 
+  final String adaptedContent;
+  final List<String> matchingIngredients;
   final String imageUrl;
-  final String recipeOriginalId; 
+  final String recipeOriginalId;
 
   SuggestedRecipeDetail({
     required this.title,
@@ -28,15 +28,10 @@ class SuggestedRecipeDetail {
 }
 
 // Tipo de dato de salida para la función de filtrado
-typedef ScoredRecipe = ({
-  Recipe recipe,
-  int score,
-  List<String> matches
-});
-
+typedef ScoredRecipe = ({Recipe recipe, int score, List<String> matches});
 
 class IANutricionalScreen extends StatefulWidget {
-  final List<ReceiptItem> scannedItems; 
+  final List<ReceiptItem> scannedItems;
 
   const IANutricionalScreen({super.key, required this.scannedItems});
 
@@ -46,35 +41,36 @@ class IANutricionalScreen extends StatefulWidget {
 
 class _IANutricionalScreenState extends State<IANutricionalScreen> {
   // Listas de datos
-  List<SuggestedRecipeDetail> _suggestedRecipes = []; 
-  List<Recipe> _allRecipesFromFirestore = []; 
-  
+  List<SuggestedRecipeDetail> _suggestedRecipes = [];
+  List<Recipe> _allRecipesFromFirestore = [];
+
   bool _isLoading = true;
   String? _errorMessage;
 
-  final String apiKey = "AIzaSyBYS_97Q3VtHrdjpo9thLPSyNooICgYzEI"; 
-  final String apiUrl = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent";
+  final String apiKey = "AIzaSyBYS_97Q3VtHrdjpo9thLPSyNooICgYzEI";
+  final String apiUrl =
+      "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent";
 
   final List<String> _menuTypeOptions = ['Plan Semanal', 'Receta Única'];
   String _menuType = 'Receta Única'; // Estado actual
 
   final List<String> _masterDietOptions = [
-    'Ninguna', 
+    'Ninguna',
     'Vegetariana',
     'Vegana',
     'Sin Gluten',
     'Keto',
     'Paleo',
   ];
-  
+
   // Preferencias
-  String _currentDiet = 'Ninguna'; 
-  int _numServings = 1; 
+  String _currentDiet = 'Ninguna';
+  int _numServings = 1;
 
   @override
   void initState() {
     super.initState();
-    _loadAllDataAndGenerate(); 
+    _loadAllDataAndGenerate();
   }
 
   // --- CARGAR DATOS DE USUARIO Y RECETAS ---
@@ -82,20 +78,22 @@ class _IANutricionalScreenState extends State<IANutricionalScreen> {
     setState(() {
       _isLoading = true;
     });
-    
-    await _loadUserPreferences(); 
+
+    await _loadUserPreferences();
     await _loadRecipesFromFirestore();
 
-    _generateRecipes(); 
+    _generateRecipes();
   }
-
 
   // --- CARGAR PREFERENCIAS DESDE FIRESTORE ---
   Future<void> _loadUserPreferences() async {
     final user = FirebaseAuth.instance.currentUser;
     if (user != null) {
       try {
-        final userDoc = await FirebaseFirestore.instance.collection('users').doc(user.uid).get();
+        final userDoc = await FirebaseFirestore.instance
+            .collection('users')
+            .doc(user.uid)
+            .get();
         if (userDoc.exists && userDoc.data() != null) {
           final data = userDoc.data()!;
           final loadedDiet = data['dietaryPreferences'] ?? 'Ninguna';
@@ -115,37 +113,37 @@ class _IANutricionalScreenState extends State<IANutricionalScreen> {
   // --- CARGAR RECETAS DESDE FIRESTORE ---
   Future<void> _loadRecipesFromFirestore() async {
     try {
-      final snapshot = await FirebaseFirestore.instance.collection('recipes').get();
-      
+      final snapshot =
+          await FirebaseFirestore.instance.collection('recipes').get();
+
       final List<Recipe> loadedRecipes = snapshot.docs.map((doc) {
         return Recipe.fromMap(doc.data(), doc.id);
       }).toList();
-      
+
       if (mounted) {
         _allRecipesFromFirestore = loadedRecipes;
       }
-      
-      if (_allRecipesFromFirestore.isEmpty) {
-         _errorMessage = 'No se encontraron recetas en la base de datos de Firestore. Usa el botón en la pantalla de Inicio para subir una receta de prueba.';
-      }
 
+      if (_allRecipesFromFirestore.isEmpty) {
+        _errorMessage =
+            'No se encontraron recetas en la base de datos de Firestore. Usa el botón en la pantalla de Inicio para subir una receta de prueba.';
+      }
     } catch (e) {
-      _errorMessage = 'Error al conectar con Firestore para cargar las recetas: ${e.toString()}';
+      _errorMessage =
+          'Error al conectar con Firestore para cargar las recetas: ${e.toString()}';
       print("Error Firestore: $e");
     }
   }
 
   // --- Lógica del Plan Semanal (Generación de Calendario) ---
-  Future<void> _generateWeeklyPlan(
-      List<ScoredRecipe> candidateRecipesInfo, String availableItemsString) async {
-    
+  Future<void> _generateWeeklyPlan(List<ScoredRecipe> candidateRecipesInfo,
+      String availableItemsString) async {
     // 1. Preparamos el JSON de las 3 mejores recetas
-    final List<Map<String, dynamic>> selectedRecipes = candidateRecipesInfo
-        .map((s) => s.recipe.toJson())
-        .toList();
-        
+    final List<Map<String, dynamic>> selectedRecipes =
+        candidateRecipesInfo.map((s) => s.recipe.toJson()).toList();
+
     final selectedRecipesJson = jsonEncode(selectedRecipes);
-    
+
     // 2. PROMPT DE GENERACIÓN DE CALENDARIO
     final prompt = """
       Eres un planificador de comidas IA. Genera un plan de menú semanal (Lunes a Domingo) para $_numServings persona(s) y la dieta '$_currentDiet'.
@@ -169,12 +167,15 @@ class _IANutricionalScreenState extends State<IANutricionalScreen> {
     try {
       final payload = {
         "contents": [
-          {"role": "user", "parts": [
-            {"text": prompt}
-          ]}
+          {
+            "role": "user",
+            "parts": [
+              {"text": prompt}
+            ]
+          }
         ],
         "generationConfig": {
-          "temperature": 0.6, 
+          "temperature": 0.6,
         },
       };
 
@@ -185,20 +186,26 @@ class _IANutricionalScreenState extends State<IANutricionalScreen> {
 
       if (response.statusCode == 200) {
         final jsonResponse = jsonDecode(utf8.decode(response.bodyBytes));
-        final generatedText = jsonResponse['candidates'][0]['content']['parts'][0]['text'] as String;
-        
+        final generatedText = jsonResponse['candidates'][0]['content']['parts']
+            [0]['text'] as String;
+
         // Guardamos la respuesta como una ÚNICA "receta" para el Plan Semanal
         if (mounted) {
           _suggestedRecipes.add(SuggestedRecipeDetail(
             title: "Plan Semanal para $_currentDiet",
             adaptedContent: generatedText, // Contiene el menú completo
-            matchingIngredients: [], 
-            imageUrl: candidateRecipesInfo.isNotEmpty ? candidateRecipesInfo.first.recipe.imageUrl : '', // ⭐️ Foto de la primera receta
-            recipeOriginalId: candidateRecipesInfo.isNotEmpty ? candidateRecipesInfo.first.recipe.id : '', // ⭐️ ID para referencia
+            matchingIngredients: [],
+            imageUrl: candidateRecipesInfo.isNotEmpty
+                ? candidateRecipesInfo.first.recipe.imageUrl
+                : '', // ⭐️ Foto de la primera receta
+            recipeOriginalId: candidateRecipesInfo.isNotEmpty
+                ? candidateRecipesInfo.first.recipe.id
+                : '', // ⭐️ ID para referencia
           ));
         }
       } else {
-        throw Exception('API falló con código ${response.statusCode}. Mensaje: ${response.body}');
+        throw Exception(
+            'API falló con código ${response.statusCode}. Mensaje: ${response.body}');
       }
     } catch (e) {
       _showError('Fallo al generar el plan semanal: ${e.toString()}');
@@ -206,13 +213,13 @@ class _IANutricionalScreenState extends State<IANutricionalScreen> {
   }
 
   // --- Lógica de Recetas Únicas (Adaptación de Porciones) ---
-  Future<void> _generateSingleRecipes(
-      List<ScoredRecipe> candidateRecipesInfo, String availableItemsString) async {
+  Future<void> _generateSingleRecipes(List<ScoredRecipe> candidateRecipesInfo,
+      String availableItemsString) async {
     for (final scoredRecipe in candidateRecipesInfo) {
-      final recipe = scoredRecipe.recipe; 
-      final matchingIngredients = scoredRecipe.matches; 
+      final recipe = scoredRecipe.recipe;
+      final matchingIngredients = scoredRecipe.matches;
       final recipeJson = jsonEncode(recipe.toJson());
-      
+
       final prompt = """
         Eres un chef IA especializado en adaptar recetas.
         
@@ -232,9 +239,12 @@ class _IANutricionalScreenState extends State<IANutricionalScreen> {
       try {
         final payload = {
           "contents": [
-            {"role": "user", "parts": [
-              {"text": prompt}
-            ]}
+            {
+              "role": "user",
+              "parts": [
+                {"text": prompt}
+              ]
+            }
           ],
           "generationConfig": {
             "temperature": 0.5,
@@ -248,19 +258,21 @@ class _IANutricionalScreenState extends State<IANutricionalScreen> {
 
         if (response.statusCode == 200) {
           final jsonResponse = jsonDecode(utf8.decode(response.bodyBytes));
-          final generatedText = jsonResponse['candidates'][0]['content']['parts'][0]['text'] as String;
-          
+          final generatedText = jsonResponse['candidates'][0]['content']
+              ['parts'][0]['text'] as String;
+
           if (mounted) {
             _suggestedRecipes.add(SuggestedRecipeDetail(
-              title: recipe.title, 
+              title: recipe.title,
               adaptedContent: generatedText,
-              matchingIngredients: matchingIngredients, 
+              matchingIngredients: matchingIngredients,
               imageUrl: recipe.imageUrl, // ⭐️ AÑADIDO
               recipeOriginalId: recipe.id,
             ));
           }
         } else {
-          print('Error API al adaptar ${recipe.title}: ${response.statusCode} - ${response.body}');
+          print(
+              'Error API al adaptar ${recipe.title}: ${response.statusCode} - ${response.body}');
         }
       } catch (e) {
         print('Excepción al adaptar ${recipe.title}: $e');
@@ -269,12 +281,11 @@ class _IANutricionalScreenState extends State<IANutricionalScreen> {
     }
   }
 
-
   // --- 2. LÓGICA DE BÚSQUEDA Y FILTRO ---
-  List<ScoredRecipe> _filterRecipes(List<ReceiptItem> items, String diet, int servings) {
-    
-    final recipesToFilter = _allRecipesFromFirestore; 
-    
+  List<ScoredRecipe> _filterRecipes(
+      List<ReceiptItem> items, String diet, int servings) {
+    final recipesToFilter = _allRecipesFromFirestore;
+
     // 1. Obtener nombres de ingredientes del ticket
     final availableItems = items.map((i) => i.item.toLowerCase()).toList();
 
@@ -291,19 +302,21 @@ class _IANutricionalScreenState extends State<IANutricionalScreen> {
 
       for (var ingredient in recipe.ingredients) {
         final ingredientNameLower = ingredient.name.toLowerCase();
-        
+
         // Buscar coincidencia
-        final hasMatch = availableItems.firstWhere(
-            (item) => item.contains(ingredientNameLower),
-            orElse: () => '',
-        ).isNotEmpty;
+        final hasMatch = availableItems
+            .firstWhere(
+              (item) => item.contains(ingredientNameLower),
+              orElse: () => '',
+            )
+            .isNotEmpty;
 
         if (hasMatch) {
           score++;
-          matches.add(ingredient.name); 
+          matches.add(ingredient.name);
         }
       }
-      return (recipe: recipe, score: score, matches: matches); 
+      return (recipe: recipe, score: score, matches: matches);
     }).toList();
 
     // 4. Ordenar por score y tomar las 3 mejores (que tengan al menos 1 coincidencia)
@@ -319,36 +332,39 @@ class _IANutricionalScreenState extends State<IANutricionalScreen> {
       _errorMessage = null;
       _suggestedRecipes = [];
     });
-    
+
     if (_allRecipesFromFirestore.isEmpty) {
       setState(() => _isLoading = false);
-      return; 
+      return;
     }
 
     // 1. Obtener recetas candidatas de Firestore
-    final candidateRecipesInfo = _filterRecipes(widget.scannedItems, _currentDiet, _numServings);
-    
+    final candidateRecipesInfo =
+        _filterRecipes(widget.scannedItems, _currentDiet, _numServings);
+
     if (candidateRecipesInfo.isEmpty) {
       setState(() {
         _isLoading = false;
-        _errorMessage = 'No se encontraron recetas que coincidan con tus ingredientes y preferencias de dieta. Asegúrate de tener al menos un ingrediente en común.';
+        _errorMessage =
+            'No se encontraron recetas que coincidan con tus ingredientes y preferencias de dieta. Asegúrate de tener al menos un ingrediente en común.';
       });
       return;
     }
 
     // 2. Preparar el contexto de los ingredientes disponibles
-    final availableItemsString = widget.scannedItems.map((i) => '${i.item} (x${i.qty})').join(', ');
-    
+    final availableItemsString =
+        widget.scannedItems.map((i) => '${i.item} (x${i.qty})').join(', ');
+
     // ⭐️ DECISIÓN DE FLUJO ⭐️
     if (_menuType == 'Plan Semanal') {
       await _generateWeeklyPlan(candidateRecipesInfo, availableItemsString);
     } else {
       await _generateSingleRecipes(candidateRecipesInfo, availableItemsString);
     }
-    
-    
+
     if (_suggestedRecipes.isEmpty && _errorMessage == null) {
-      _errorMessage = 'Fallo la adaptación de todas las recetas candidatas o la IA no pudo procesar la solicitud.';
+      _errorMessage =
+          'Fallo la adaptación de todas las recetas candidatas o la IA no pudo procesar la solicitud.';
     }
 
     setState(() {
@@ -357,7 +373,8 @@ class _IANutricionalScreenState extends State<IANutricionalScreen> {
   }
 
   // --- 4. FUNCIÓN DE BACKOFF (REINTENTOS) ---
-  Future<http.Response> _fetchWithExponentialBackoff(Uri uri, {String? body}) async {
+  Future<http.Response> _fetchWithExponentialBackoff(Uri uri,
+      {String? body}) async {
     const maxRetries = 3;
     const initialDelay = Duration(seconds: 2);
 
@@ -368,7 +385,8 @@ class _IANutricionalScreenState extends State<IANutricionalScreen> {
           headers: {'Content-Type': 'application/json'},
           body: body,
         );
-        if (response.statusCode < 500 && response.statusCode != 429) return response;
+        if (response.statusCode < 500 && response.statusCode != 429)
+          return response;
       } catch (e) {
         // Ignorar errores de red y reintentar
       }
@@ -378,7 +396,8 @@ class _IANutricionalScreenState extends State<IANutricionalScreen> {
         await Future.delayed(delay);
       }
     }
-    return http.Response('{"error": "Tiempo de espera agotado o error de red."}', 500);
+    return http.Response(
+        '{"error": "Tiempo de espera agotado o error de red."}', 500);
   }
 
   // --- FUNCIONES DE INTERFAZ Y UTILIDAD ---
@@ -397,31 +416,40 @@ class _IANutricionalScreenState extends State<IANutricionalScreen> {
 
   // Vista para Plan Semanal
   Widget _buildWeeklyPlanView(SuggestedRecipeDetail menuResult) {
-    final List<String> days = menuResult.adaptedContent.split(RegExp(r'\n(?=Lunes|Martes|Miércoles|Jueves|Viernes|Sábado|Domingo)', caseSensitive: false));
+    final List<String> days = menuResult.adaptedContent.split(RegExp(
+        r'\n(?=Lunes|Martes|Miércoles|Jueves|Viernes|Sábado|Domingo)',
+        caseSensitive: false));
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
           menuResult.title,
-          style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.blueGrey),
+          style: const TextStyle(
+              fontSize: 20,
+              fontWeight: FontWeight.bold,
+              color: Colors.blueGrey),
         ),
         const Divider(),
         ...days.map((dayPlan) {
           if (dayPlan.trim().isEmpty) return const SizedBox.shrink();
-          
+
           final parts = dayPlan.trim().split(':');
           final day = parts[0].trim().replaceAll('\n', '');
-          final content = parts.length > 1 ? parts.sublist(1).join(':').trim() : 'Contenido no especificado.';
-          
+          final content = parts.length > 1
+              ? parts.sublist(1).join(':').trim()
+              : 'Contenido no especificado.';
+
           return Padding(
             padding: const EdgeInsets.only(bottom: 8.0),
             child: ExpansionTile(
-              title: Text(day, style: const TextStyle(fontWeight: FontWeight.bold)),
-              trailing: const Icon(Icons.calendar_today, color: Colors.green), 
+              title: Text(day,
+                  style: const TextStyle(fontWeight: FontWeight.bold)),
+              trailing: const Icon(Icons.calendar_today, color: Colors.green),
               children: <Widget>[
                 Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: 16.0, vertical: 8.0),
                   child: Text(content, style: const TextStyle(fontSize: 14)),
                 ),
               ],
@@ -453,12 +481,21 @@ class _IANutricionalScreenState extends State<IANutricionalScreen> {
           final originalId = adaptedResult.recipeOriginalId;
 
           // Intenta encontrar la descripción
-          final recipeLines = recipeContent.split('\n').map((l) => l.trim()).where((l) => l.isNotEmpty).toList();
-          final titleLine = recipeLines.firstWhere((line) => line.toUpperCase().contains(recipeTitle.toUpperCase()), orElse: () => recipeTitle);
+          final recipeLines = recipeContent
+              .split('\n')
+              .map((l) => l.trim())
+              .where((l) => l.isNotEmpty)
+              .toList();
+          final titleLine = recipeLines.firstWhere(
+              (line) => line.toUpperCase().contains(recipeTitle.toUpperCase()),
+              orElse: () => recipeTitle);
           final descriptionIndex = recipeLines.indexOf(titleLine) + 1;
-          final recipeDescription = descriptionIndex < recipeLines.length ? recipeLines[descriptionIndex] : 'Receta adaptada por IA.';
-          
-          final imageUrl = adaptedResult.imageUrl; // ⭐️ La URL ahora es accesible
+          final recipeDescription = descriptionIndex < recipeLines.length
+              ? recipeLines[descriptionIndex]
+              : 'Receta adaptada por IA.';
+
+          final imageUrl =
+              adaptedResult.imageUrl; // ⭐️ La URL ahora es accesible
 
           return GestureDetector(
             onTap: () {
@@ -468,8 +505,8 @@ class _IANutricionalScreenState extends State<IANutricionalScreen> {
                   builder: (context) => RecipeDetailScreen(
                     recipeContent: recipeContent,
                     recipeTitle: recipeTitle,
-                    recipeId: originalId, 
-                    currentServings: _numServings, 
+                    recipeId: originalId,
+                    currentServings: _numServings,
                     currentDiet: _currentDiet,
                   ),
                 ),
@@ -487,52 +524,63 @@ class _IANutricionalScreenState extends State<IANutricionalScreen> {
                     Container(
                       height: 120,
                       // ⭐️ Usamos Image.network si la URL es válida ⭐️
-                      child: imageUrl.isNotEmpty 
-                        ? Image.network(
-                            imageUrl,
-                            fit: BoxFit.cover,
-                            width: double.infinity,
-                            loadingBuilder: (context, child, loadingProgress) {
-                              if (loadingProgress == null) return child;
-                              return Container(
-                                color: Colors.lightGreen.shade100,
-                                alignment: Alignment.center,
-                                child: const CircularProgressIndicator(color: Colors.green),
-                              );
-                            },
-                            errorBuilder: (context, error, stackTrace) {
-                              return Container(
-                                color: Colors.lightGreen.shade100,
-                                alignment: Alignment.center,
-                                child: const Icon(Icons.broken_image, size: 60, color: Colors.red),
-                              );
-                            },
-                          )
-                        : Container( // Placeholder si no hay URL
-                            color: Colors.lightGreen.shade100,
-                            alignment: Alignment.center,
-                            child: const Icon(Icons.food_bank, size: 60, color: Colors.green),
-                          ),
+                      child: imageUrl.isNotEmpty
+                          ? Image.network(
+                              imageUrl,
+                              fit: BoxFit.cover,
+                              width: double.infinity,
+                              loadingBuilder:
+                                  (context, child, loadingProgress) {
+                                if (loadingProgress == null) return child;
+                                return Container(
+                                  color: Colors.lightGreen.shade100,
+                                  alignment: Alignment.center,
+                                  child: const CircularProgressIndicator(
+                                      color: Colors.green),
+                                );
+                              },
+                              errorBuilder: (context, error, stackTrace) {
+                                return Container(
+                                  color: Colors.lightGreen.shade100,
+                                  alignment: Alignment.center,
+                                  child: const Icon(Icons.broken_image,
+                                      size: 60, color: Colors.red),
+                                );
+                              },
+                            )
+                          : Container(
+                              // Placeholder si no hay URL
+                              color: Colors.lightGreen.shade100,
+                              alignment: Alignment.center,
+                              child: const Icon(Icons.food_bank,
+                                  size: 60, color: Colors.green),
+                            ),
                     ),
                     Padding(
-                      padding: const EdgeInsets.only(top: 8.0, left: 12.0, right: 12.0),
+                      padding: const EdgeInsets.only(
+                          top: 8.0, left: 12.0, right: 12.0),
                       child: Text(
                         recipeTitle,
-                        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
+                        style: const TextStyle(
+                            fontWeight: FontWeight.bold, fontSize: 18),
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                       ),
                     ),
                     Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 12.0, vertical: 4.0),
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 12.0, vertical: 4.0),
                       child: Text(
                         'Raciones: $_numServings | Dieta: $_currentDiet',
-                        style: TextStyle(fontSize: 12, color: Colors.green.shade700, fontWeight: FontWeight.bold),
+                        style: TextStyle(
+                            fontSize: 12,
+                            color: Colors.green.shade700,
+                            fontWeight: FontWeight.bold),
                       ),
                     ),
-                    
                     Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 12.0, vertical: 8.0),
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 12.0, vertical: 8.0),
                       child: Container(
                         padding: const EdgeInsets.all(6),
                         decoration: BoxDecoration(
@@ -552,7 +600,7 @@ class _IANutricionalScreenState extends State<IANutricionalScreen> {
                               ),
                             ),
                             Text(
-                              matchingIngredients.join(', '), 
+                              matchingIngredients.join(', '),
                               style: const TextStyle(
                                 fontSize: 13,
                                 color: Colors.black87,
@@ -565,13 +613,16 @@ class _IANutricionalScreenState extends State<IANutricionalScreen> {
                         ),
                       ),
                     ),
-
                     const Spacer(),
                     Align(
                       alignment: Alignment.centerRight,
                       child: Padding(
-                        padding: const EdgeInsets.only(right: 12.0, bottom: 8.0),
-                        child: Text('Ver Receta Adaptada', style: TextStyle(color: Colors.green, fontWeight: FontWeight.bold)),
+                        padding:
+                            const EdgeInsets.only(right: 12.0, bottom: 8.0),
+                        child: Text('Ver Receta Adaptada',
+                            style: TextStyle(
+                                color: Colors.green,
+                                fontWeight: FontWeight.bold)),
                       ),
                     )
                   ],
@@ -590,6 +641,16 @@ class _IANutricionalScreenState extends State<IANutricionalScreen> {
 
   @override
   Widget build(BuildContext context) {
+    // ✅ SI ESTÁ CARGANDO: Pantalla completa verde sin AppBar
+    if (_isLoading) {
+      return const Scaffold(
+        body: CustomLogoLoader(
+          text: 'Cargando recetas y adaptándolas para ti...',
+        ),
+      );
+    }
+
+    // ✅ SI YA CARGÓ: Pantalla normal con AppBar y contenido
     return Scaffold(
       appBar: AppBar(title: const Text('IA Nutricional')),
       body: _buildBody(),
@@ -597,61 +658,54 @@ class _IANutricionalScreenState extends State<IANutricionalScreen> {
   }
 
   Widget _buildBody() {
+    // 1. Si está cargando, mostramos la animación de bolitas
     if (_isLoading) {
-      return const Center(child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          CircularProgressIndicator(),
-          SizedBox(height: 10),
-          Text('Cargando recetas y adaptándolas para ti...'),
-        ],
-      ));
+      return const CustomLogoLoader(
+        text: 'Cargando recetas y adaptándolas para ti...',
+      );
     }
-
+    // 2. Si hay error o no hay recetas, mostramos el mensaje de error
     if (_errorMessage != null || _suggestedRecipes.isEmpty) {
       return Center(
           child: Padding(
-            padding: const EdgeInsets.all(32.0),
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                const Icon(Icons.info_outline, color: Colors.red, size: 50),
-                const SizedBox(height: 10),
-                Text(_errorMessage ?? 'No se pudo generar una sugerencia de receta. Intenta con más ingredientes.', 
-                  textAlign: TextAlign.center,
-                  style: const TextStyle(color: Colors.red, fontSize: 16)),
-                const SizedBox(height: 20),
-                
-                ElevatedButton(
-                  onPressed: _loadAllDataAndGenerate, 
-                  child: const Text('Reintentar Carga / Búsqueda'),
-                ),
-                
-              ],
+        padding: const EdgeInsets.all(32.0),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            const Icon(Icons.info_outline, color: Colors.red, size: 50),
+            const SizedBox(height: 10),
+            Text(
+                _errorMessage ??
+                    'No se pudo generar una sugerencia de receta. Intenta con más ingredientes.',
+                textAlign: TextAlign.center,
+                style: const TextStyle(color: Colors.red, fontSize: 16)),
+            const SizedBox(height: 20),
+            ElevatedButton(
+              onPressed: _loadAllDataAndGenerate,
+              child: const Text('Reintentar Carga / Búsqueda'),
             ),
-          ));
+          ],
+        ),
+      ));
     }
 
-    // Contenido principal: Opciones de Modificación + Resultado de Recetas
+    // 2. Si todo salió bien (hay recetas), mostramos el contenido principal
     return SingleChildScrollView(
       padding: const EdgeInsets.all(16.0),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           _buildModificationOptions(),
-
           const SizedBox(height: 30),
-
           Text(
-            _menuType == 'Plan Semanal' 
-              ? 'Menú Semanal Sugerido:' 
-              : 'Recetas Sugeridas (Adaptadas por Gemini):',
-            style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Colors.green),
+            _menuType == 'Plan Semanal'
+                ? 'Menú Semanal Sugerido:'
+                : 'Recetas Sugeridas (Adaptadas por Gemini):',
+            style: const TextStyle(
+                fontSize: 22, fontWeight: FontWeight.bold, color: Colors.green),
           ),
           const Divider(),
-
           _buildRecipeListView(),
-
           const SizedBox(height: 20),
         ],
       ),
@@ -667,22 +721,25 @@ class _IANutricionalScreenState extends State<IANutricionalScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text('Ajustar Adaptación:', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+            const Text('Ajustar Adaptación:',
+                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
             const SizedBox(height: 10),
 
             // Selector de Modo (Plan Semanal / Receta Única)
             DropdownButtonFormField<String>(
-              decoration: const InputDecoration(labelText: 'Modo de Sugerencia'),
+              decoration:
+                  const InputDecoration(labelText: 'Modo de Sugerencia'),
               value: _menuType,
-              items: _menuTypeOptions 
-                  .map((label) => DropdownMenuItem(value: label, child: Text(label)))
+              items: _menuTypeOptions
+                  .map((label) =>
+                      DropdownMenuItem(value: label, child: Text(label)))
                   .toList(),
               onChanged: (value) {
                 if (value != null) {
                   setState(() {
                     _menuType = value;
                   });
-                  _generateRecipes(); 
+                  _generateRecipes();
                 }
               },
             ),
@@ -690,10 +747,12 @@ class _IANutricionalScreenState extends State<IANutricionalScreen> {
 
             // ⭐️ Selector de Dieta (Faltaba en la versión anterior) ⭐️
             DropdownButtonFormField<String>(
-              decoration: InputDecoration(labelText: 'Tipo de Dieta (Actual: $_currentDiet)'),
+              decoration: InputDecoration(
+                  labelText: 'Tipo de Dieta (Actual: $_currentDiet)'),
               value: _currentDiet,
               items: _masterDietOptions
-                  .map((label) => DropdownMenuItem(value: label, child: Text(label)))
+                  .map((label) =>
+                      DropdownMenuItem(value: label, child: Text(label)))
                   .toList(),
               onChanged: (value) {
                 if (value != null) {
@@ -710,10 +769,12 @@ class _IANutricionalScreenState extends State<IANutricionalScreen> {
               children: [
                 Expanded(
                   child: DropdownButtonFormField<int>(
-                    decoration: InputDecoration(labelText: 'Raciones (Actual: $_numServings)'),
+                    decoration: InputDecoration(
+                        labelText: 'Raciones (Actual: $_numServings)'),
                     value: _numServings,
                     items: [1, 2, 3, 4, 5, 6, 7, 8]
-                        .map((n) => DropdownMenuItem(value: n, child: Text('$n')))
+                        .map((n) =>
+                            DropdownMenuItem(value: n, child: Text('$n')))
                         .toList(),
                     onChanged: (value) {
                       if (value != null) {
