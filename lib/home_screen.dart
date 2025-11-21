@@ -29,7 +29,7 @@ class _HomeScreenState extends State<HomeScreen> {
   List<ReceiptItem> _receiptItems = [];
 
   // ... (apiKey y apiUrl se quedan igual) ...
-  final String apiKey = "AIzaSyBYS_97Q3VtHrdjpo9thLPSyNooICgYzEI";
+  final String apiKey = "AIzaSyAKOqp3_MS-b4ElNaNe01tGaYidUSJyZm8";
   final String apiUrl =
       "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent";
 
