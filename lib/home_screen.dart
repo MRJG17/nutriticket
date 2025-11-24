@@ -447,18 +447,17 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      // ✅ APP BAR: Se oculta si es la pestaña de perfil O si está cargando
-      appBar: (_selectedIndex == 3 || _isLoading)
-          ? null
-          : AppBar(
-              title: const Text('NutriTicket'),
-            ),
+      // ⭐️ CORRECCIÓN IMPORTANTE:
+      // Solo mostramos el AppBar "NutriTicket" si estamos en el índice 0 (Inicio).
+      // Si estamos en Recetas(1), IA(2) o Perfil(3), ocultamos esta barra para
+      // que se vean las barras verdes propias de cada sección.
+      appBar: (_selectedIndex == 0 && !_isLoading)
+          ? AppBar(title: const Text('NutriTicket'))
+          : null,
+
       body: Stack(
         children: [
-          // El contenido principal (solo visible si no carga, por el Stack)
           _widgetOptions[_selectedIndex],
-
-          // El cargador a pantalla completa
           if (_isLoading)
             const Positioned.fill(
               child: CustomLogoLoader(
@@ -467,7 +466,8 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
         ],
       ),
-      // ✅ BOTÓN FLOTANTE: Se oculta si está cargando
+
+      // El resto se queda igual...
       floatingActionButton: _isLoading
           ? null
           : FloatingActionButton(
@@ -478,7 +478,6 @@ class _HomeScreenState extends State<HomeScreen> {
               child: const Icon(Icons.qr_code_scanner, size: 28),
             ),
       floatingActionButtonLocation: FloatingActionButtonLocation.centerDocked,
-      // ✅ BARRA INFERIOR: Se oculta si está cargando
       bottomNavigationBar: _isLoading
           ? null
           : BottomAppBar(

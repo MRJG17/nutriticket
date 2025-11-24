@@ -3,72 +3,87 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:nutriticket/recipe.dart'; 
-import 'package:nutriticket/recipe_detail_screen.dart'; 
+import 'package:nutriticket/recipe.dart';
+import 'package:nutriticket/recipe_detail_screen.dart';
+import 'package:cached_network_image/cached_network_image.dart'; // 1. Importar imágenes caché
 
-class RecetasScreen extends StatelessWidget {
+class RecetasScreen extends StatefulWidget {
   const RecetasScreen({super.key});
 
-  // FUNCIÓN PRINCIPAL PARA CARGAR FAVORITOS (Ruta Corregida)
+  @override
+  State<RecetasScreen> createState() => _RecetasScreenState();
+}
+
+class _RecetasScreenState extends State<RecetasScreen> {
+  // Estados para controlar la vista
+  bool _isGridView = false; // false = Lista, true = Cuadrícula
+  final TextEditingController _searchController = TextEditingController();
+  String _searchText = "";
+  String _filterDiet = "Todas"; // Filtro simple
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
+  }
+
+  // --- STREAM DE DATOS (Misma lógica de antes) ---
   Stream<List<Map<String, dynamic>>> _loadFavoritesStream(String userId) {
     final firestore = FirebaseFirestore.instance;
-
-    // RUTA AUTORIZADA: userFavorites/{userId}/favorites
     final favoritesCollectionRef = firestore
-        .collection('userFavorites') 
-        .doc(userId)                  
-        .collection('favorites');     
+        .collection('userFavorites')
+        .doc(userId)
+        .collection('favorites');
 
-    // La consulta directa a la subcolección es la clave para la seguridad (PERMISSION_DENIED fix)
-    final favoritesStream = favoritesCollectionRef
-        .orderBy('savedAt', descending: true)
-        .snapshots();
+    final favoritesStream =
+        favoritesCollectionRef.orderBy('savedAt', descending: true).snapshots();
 
-    // Procesa la instantánea de favoritos
     return favoritesStream.asyncMap((favoriteSnapshot) async {
-      
-      final List<Future<Map<String, dynamic>?>> futures = favoriteSnapshot.docs.map((favDoc) async {
+      final List<Future<Map<String, dynamic>?>> futures =
+          favoriteSnapshot.docs.map((favDoc) async {
         final favData = favDoc.data();
         final recipeId = favData['recipeId'] as String?;
-        
+
         if (recipeId == null || recipeId.isEmpty) return null;
 
-        // Obtener el documento de receta original de /recipes
-        final recipeDoc = await firestore.collection('recipes').doc(recipeId).get();
+        final recipeDoc =
+            await firestore.collection('recipes').doc(recipeId).get();
 
         if (recipeDoc.exists && recipeDoc.data() != null) {
-          final Recipe originalRecipe = Recipe.fromMap(recipeDoc.data()!, recipeDoc.id);
-          
-          // Creamos el contenido de la receta para el detalle
-          final String originalContent = 
-            '**INGREDIENTES ORIGINALES (${originalRecipe.baseServings} porciones):**\n' +
-            originalRecipe.ingredients.map((i) => '* ${i.name}: ${i.quantity} ${i.unit}').join('\n') +
-            '\n\n**INSTRUCCIONES:**\n' +
-            originalRecipe.instructions;
+          final Recipe originalRecipe =
+              Recipe.fromMap(recipeDoc.data()!, recipeDoc.id);
+
+          final String originalContent =
+              '**INGREDIENTES ORIGINALES (${originalRecipe.baseServings} porciones):**\n' +
+                  originalRecipe.ingredients
+                      .map((i) => '* ${i.name}: ${i.quantity} ${i.unit}')
+                      .join('\n') +
+                  '\n\n**INSTRUCCIONES:**\n' +
+                  originalRecipe.instructions;
 
           return {
             'recipe': originalRecipe,
             'originalContent': originalContent,
-            'savedServings': favData['savedServings'] as int? ?? originalRecipe.baseServings,
+            'savedServings':
+                favData['savedServings'] as int? ?? originalRecipe.baseServings,
             'savedDiet': favData['savedDiet'] as String? ?? 'Ninguna',
-            'favoriteId': favDoc.id, 
+            'favoriteId': favDoc.id,
           };
         }
-        return null; // Retorna null si la receta original no existe
+        return null;
       }).toList();
 
-      // Espera que todas las peticiones secundarias se completen y limpia los nulos
       final results = await Future.wait(futures);
-      return results.whereType<Map<String, dynamic>>().toList(); 
+      return results.whereType<Map<String, dynamic>>().toList();
     });
   }
 
-  // FUNCIÓN DE NAVEGACIÓN
-  void _navigateToRecipeDetail(BuildContext context, Map<String, dynamic> detail) {
+  // --- NAVEGACIÓN ---
+  void _navigateToRecipeDetail(
+      BuildContext context, Map<String, dynamic> detail) {
     final Recipe recipe = detail['recipe'];
     final String content = detail['originalContent'];
-    // ⭐️ OBTENEMOS LOS NUEVOS PARÁMETROS ⭐️
-    final String recipeId = recipe.id; // Ya tienes el ID de la receta original
+    final String recipeId = recipe.id;
     final int servings = detail['savedServings'];
     final String diet = detail['savedDiet'];
 
@@ -77,71 +92,354 @@ class RecetasScreen extends StatelessWidget {
       MaterialPageRoute(
         builder: (context) => RecipeDetailScreen(
           recipeTitle: recipe.title,
-          recipeContent: content, 
-          // ⭐️ AGREGAR LOS PARÁMETROS REQUERIDOS ⭐️
+          recipeContent: content,
           recipeId: recipeId,
           currentServings: servings,
           currentDiet: diet,
+          imageUrl: recipe.imageUrl, // Pasamos la imagen
         ),
       ),
     );
-}
+  }
 
   @override
   Widget build(BuildContext context) {
     final user = FirebaseAuth.instance.currentUser;
 
-    if (user == null) {
-      return const Center(child: Text('Inicia sesión para ver tus recetas guardadas.'));
-    }
-
-    return StreamBuilder<List<Map<String, dynamic>>>(
-      stream: _loadFavoritesStream(user.uid),
-      builder: (context, snapshot) {
-        if (snapshot.connectionState == ConnectionState.waiting) {
-          return const Center(child: CircularProgressIndicator());
-        }
-        if (snapshot.hasError) {
-          return Center(child: Text('Error al cargar favoritos: ${snapshot.error}'));
-        }
-        
-        final favorites = snapshot.data ?? [];
-        
-        if (favorites.isEmpty) {
-          return const Center(
-            child: Padding(
-              padding: EdgeInsets.all(32.0),
-              child: Text(
-                'Aún no tienes recetas guardadas. ¡Escanea un ticket y guarda tus favoritas!',
-                textAlign: TextAlign.center,
-                style: TextStyle(fontSize: 16, color: Colors.grey),
-              ),
+    return Scaffold(
+      backgroundColor: Colors.grey[50],
+      appBar: AppBar(
+        backgroundColor: const Color(0xFF4CAF50),
+        title: const Text(
+          'Recetas Favoritas',
+          style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+        ),
+        centerTitle: false, // ⭐️ CORRECCIÓN: Alineado a la izquierda
+        automaticallyImplyLeading: false,
+      ),
+      body: Column(
+        children: [
+          // ... (El resto del código de la barra de búsqueda y el contenido sigue igual)
+          // 2. BARRA DE HERRAMIENTAS
+          Container(
+            padding: const EdgeInsets.all(16.0),
+            color: Colors.white,
+            child: Row(
+              children: [
+                Expanded(
+                  child: TextField(
+                    controller: _searchController,
+                    onChanged: (value) =>
+                        setState(() => _searchText = value.toLowerCase()),
+                    decoration: InputDecoration(
+                      hintText: 'Buscar receta...',
+                      prefixIcon: const Icon(Icons.search, color: Colors.grey),
+                      contentPadding: const EdgeInsets.symmetric(vertical: 0),
+                      filled: true,
+                      fillColor: Colors.grey[100],
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(30),
+                        borderSide: BorderSide.none,
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Container(
+                  decoration: BoxDecoration(
+                      color: Colors.grey[100], shape: BoxShape.circle),
+                  child: PopupMenuButton<String>(
+                    icon: Icon(Icons.filter_list,
+                        color: _filterDiet == "Todas"
+                            ? Colors.grey[600]
+                            : const Color(0xFF4CAF50)),
+                    onSelected: (value) => setState(() => _filterDiet = value),
+                    itemBuilder: (context) => [
+                      const PopupMenuItem(value: 'Todas', child: Text('Todas')),
+                      const PopupMenuItem(
+                          value: 'Vegetariana', child: Text('Vegetariana')),
+                      const PopupMenuItem(
+                          value: 'Vegana', child: Text('Vegana')),
+                      const PopupMenuItem(value: 'Keto', child: Text('Keto')),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Container(
+                  decoration: BoxDecoration(
+                      color: Colors.grey[100], shape: BoxShape.circle),
+                  child: IconButton(
+                    icon: Icon(_isGridView ? Icons.view_list : Icons.grid_view,
+                        color: const Color(0xFF4CAF50)),
+                    onPressed: () => setState(() => _isGridView = !_isGridView),
+                  ),
+                ),
+              ],
             ),
-          );
-        }
+          ),
 
-        return ListView.builder(
-          padding: const EdgeInsets.all(16.0),
-          itemCount: favorites.length,
-          itemBuilder: (context, index) {
-            final detail = favorites[index];
-            
-            final Recipe recipe = detail['recipe'];
-            final int servings = detail['savedServings'];
-            final String diet = detail['savedDiet'];
+          // 3. CONTENIDO
+          Expanded(
+            child: user == null
+                ? const Center(child: Text('Inicia sesión para ver recetas.'))
+                : StreamBuilder<List<Map<String, dynamic>>>(
+                    stream: _loadFavoritesStream(user.uid),
+                    builder: (context, snapshot) {
+                      if (snapshot.connectionState == ConnectionState.waiting) {
+                        return const Center(
+                            child: CircularProgressIndicator(
+                                color: Color(0xFF4CAF50)));
+                      }
+                      if (snapshot.hasError) {
+                        return Center(child: Text('Error: ${snapshot.error}'));
+                      }
 
-            return Card(
-              elevation: 2,
-              margin: const EdgeInsets.only(bottom: 12),
-              child: ListTile(
-                leading: const Icon(Icons.restaurant, color: Colors.green),
-                title: Text(recipe.title, style: const TextStyle(fontWeight: FontWeight.bold)),
-                subtitle: Text('Raciones guardadas: $servings | Dieta: $diet'),
-                trailing: const Icon(Icons.arrow_forward_ios, size: 16),
-                onTap: () => _navigateToRecipeDetail(context, detail),
-              ),
-            );
-          },
+                      final favorites = snapshot.data ?? [];
+                      final filteredFavorites = favorites.where((detail) {
+                        final Recipe r = detail['recipe'];
+                        final matchText =
+                            r.title.toLowerCase().contains(_searchText);
+                        final savedDiet = detail['savedDiet'] as String;
+                        final matchDiet = _filterDiet == "Todas" ||
+                            savedDiet == _filterDiet ||
+                            r.tags.any((t) => t == _filterDiet);
+                        return matchText && matchDiet;
+                      }).toList();
+
+                      if (filteredFavorites.isEmpty) {
+                        return Center(
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Icon(Icons.restaurant_menu,
+                                  size: 60, color: Colors.grey[300]),
+                              const SizedBox(height: 10),
+                              const Text('No se encontraron recetas.',
+                                  style: TextStyle(color: Colors.grey)),
+                            ],
+                          ),
+                        );
+                      }
+
+                      return _isGridView
+                          ? _buildGridView(filteredFavorites)
+                          : _buildListView(filteredFavorites);
+                    },
+                  ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // --- VISTA DE LISTA ---
+  Widget _buildListView(List<Map<String, dynamic>> favorites) {
+    return ListView.builder(
+      padding: const EdgeInsets.all(16),
+      itemCount: favorites.length,
+      itemBuilder: (context, index) {
+        final detail = favorites[index];
+        final Recipe recipe = detail['recipe'];
+        final int servings = detail['savedServings'];
+        final String diet = detail['savedDiet'];
+
+        return GestureDetector(
+          onTap: () => _navigateToRecipeDetail(context, detail),
+          child: Container(
+            margin: const EdgeInsets.only(bottom: 16),
+            height: 110, // Altura fija para uniformidad
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(15),
+              boxShadow: [
+                BoxShadow(
+                    color: Colors.black.withOpacity(0.05),
+                    blurRadius: 10,
+                    offset: const Offset(0, 4))
+              ],
+            ),
+            child: Row(
+              children: [
+                // IMAGEN
+                ClipRRect(
+                  borderRadius:
+                      const BorderRadius.horizontal(left: Radius.circular(15)),
+                  child: SizedBox(
+                    width: 110,
+                    height: 110,
+                    child: recipe.imageUrl.isNotEmpty
+                        ? CachedNetworkImage(
+                            imageUrl: recipe.imageUrl,
+                            fit: BoxFit.cover,
+                            placeholder: (context, url) => Container(
+                                color: Colors.grey[200],
+                                child: const Icon(Icons.image,
+                                    color: Colors.grey)),
+                            errorWidget: (context, url, error) => Container(
+                                color: Colors.grey[200],
+                                child: const Icon(Icons.broken_image,
+                                    color: Colors.grey)),
+                          )
+                        : Container(
+                            color: const Color(0xFFE8F5E9),
+                            child: const Icon(Icons.restaurant,
+                                color: Color(0xFF4CAF50)),
+                          ),
+                  ),
+                ),
+                // INFORMACIÓN
+                Expanded(
+                  child: Padding(
+                    padding: const EdgeInsets.all(12.0),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Text(
+                          recipe.title,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            fontWeight: FontWeight.bold,
+                            fontSize: 16,
+                            color: Colors.black87,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        // Descripción cortita
+                        Text(
+                          recipe.description.isNotEmpty
+                              ? recipe.description
+                              : 'Sin descripción disponible.',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style:
+                              TextStyle(fontSize: 12, color: Colors.grey[600]),
+                        ),
+                        const Spacer(),
+                        // Chips pequeños
+                        Row(
+                          children: [
+                            Icon(Icons.people_outline,
+                                size: 14, color: Colors.grey[600]),
+                            const SizedBox(width: 4),
+                            Text('$servings',
+                                style: const TextStyle(fontSize: 12)),
+                            const SizedBox(width: 12),
+                            Icon(Icons.eco_outlined,
+                                size: 14, color: Colors.green[700]),
+                            const SizedBox(width: 4),
+                            Text(diet,
+                                style: TextStyle(
+                                    fontSize: 12,
+                                    color: Colors.green[700],
+                                    fontWeight: FontWeight.w600)),
+                          ],
+                        )
+                      ],
+                    ),
+                  ),
+                ),
+                // FLECHA
+                const Padding(
+                  padding: EdgeInsets.only(right: 12.0),
+                  child: Icon(Icons.arrow_forward_ios,
+                      size: 16, color: Colors.grey),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  // --- VISTA DE CUADRÍCULA (Minimalista) ---
+  Widget _buildGridView(List<Map<String, dynamic>> favorites) {
+    return GridView.builder(
+      padding: const EdgeInsets.all(16),
+      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+        crossAxisCount: 2, // 2 Columnas
+        childAspectRatio: 0.8, // Proporción ancho/alto
+        crossAxisSpacing: 16,
+        mainAxisSpacing: 16,
+      ),
+      itemCount: favorites.length,
+      itemBuilder: (context, index) {
+        final detail = favorites[index];
+        final Recipe recipe = detail['recipe'];
+
+        return GestureDetector(
+          onTap: () => _navigateToRecipeDetail(context, detail),
+          child: Container(
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(15),
+              boxShadow: [
+                BoxShadow(
+                    color: Colors.black.withOpacity(0.05),
+                    blurRadius: 8,
+                    offset: const Offset(0, 4))
+              ],
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // IMAGEN GRANDE
+                Expanded(
+                  flex: 3,
+                  child: ClipRRect(
+                    borderRadius:
+                        const BorderRadius.vertical(top: Radius.circular(15)),
+                    child: SizedBox(
+                      width: double.infinity,
+                      child: recipe.imageUrl.isNotEmpty
+                          ? CachedNetworkImage(
+                              imageUrl: recipe.imageUrl,
+                              fit: BoxFit.cover,
+                              placeholder: (context, url) => Container(
+                                  color: Colors.grey[200],
+                                  child: const Center(
+                                      child: Icon(Icons.image,
+                                          color: Colors.grey))),
+                              errorWidget: (context, url, error) => Container(
+                                  color: Colors.grey[200],
+                                  child: const Center(
+                                      child: Icon(Icons.broken_image,
+                                          color: Colors.grey))),
+                            )
+                          : Container(
+                              color: const Color(0xFFE8F5E9),
+                              child: const Center(
+                                  child: Icon(Icons.restaurant,
+                                      size: 40, color: Color(0xFF4CAF50))),
+                            ),
+                    ),
+                  ),
+                ),
+                // TÍTULO MINIMALISTA
+                Expanded(
+                  flex: 1,
+                  child: Padding(
+                    padding: const EdgeInsets.all(8.0),
+                    child: Center(
+                      child: Text(
+                        recipe.title,
+                        textAlign: TextAlign.center,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          fontWeight: FontWeight.bold,
+                          fontSize: 14,
+                          color: Colors.black87,
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
         );
       },
     );
