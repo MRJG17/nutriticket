@@ -10,8 +10,8 @@ import 'package:nutriticket/recipe_detail_screen.dart';
 import 'package:nutriticket/recipe.dart';
 import 'package:nutriticket/custom_loader.dart';
 import 'package:cached_network_image/cached_network_image.dart';
+import 'package:nutriticket/secrets.dart';
 
-// Clase para manejar el resultado adaptado por Gemini
 class SuggestedRecipeDetail {
   final String title;
   final String adaptedContent;
@@ -28,7 +28,6 @@ class SuggestedRecipeDetail {
   });
 }
 
-// Tipo de dato de salida para la función de filtrado
 typedef ScoredRecipe = ({Recipe recipe, int score, List<String> matches});
 
 class IANutricionalScreen extends StatefulWidget {
@@ -41,19 +40,21 @@ class IANutricionalScreen extends StatefulWidget {
 }
 
 class _IANutricionalScreenState extends State<IANutricionalScreen> {
-  // Listas de datos
   List<SuggestedRecipeDetail> _suggestedRecipes = [];
   List<Recipe> _allRecipesFromFirestore = [];
 
   bool _isLoading = true;
   String? _errorMessage;
 
-  final String apiKey = "AIzaSyAKOqp3_MS-b4ElNaNe01tGaYidUSJyZm8";
+  // ✅ USAMOS LA CLAVE SEGURA
+  final String apiKey = googleApiKey;
+
+  // ✅ USAMOS EL MODELO 2.5 (IGUAL QUE EN HOME)
   final String apiUrl =
       "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent";
 
   final List<String> _menuTypeOptions = ['Plan Semanal', 'Receta Única'];
-  String _menuType = 'Receta Única'; // Estado actual
+  String _menuType = 'Receta Única';
 
   final List<String> _masterDietOptions = [
     'Ninguna',
@@ -64,7 +65,6 @@ class _IANutricionalScreenState extends State<IANutricionalScreen> {
     'Paleo',
   ];
 
-  // Preferencias
   String _currentDiet = 'Ninguna';
   int _numServings = 1;
 
@@ -74,19 +74,13 @@ class _IANutricionalScreenState extends State<IANutricionalScreen> {
     _loadAllDataAndGenerate();
   }
 
-  // --- CARGAR DATOS DE USUARIO Y RECETAS ---
   Future<void> _loadAllDataAndGenerate() async {
-    setState(() {
-      _isLoading = true;
-    });
-
+    setState(() => _isLoading = true);
     await _loadUserPreferences();
     await _loadRecipesFromFirestore();
-
     _generateRecipes();
   }
 
-  // --- CARGAR PREFERENCIAS DESDE FIRESTORE ---
   Future<void> _loadUserPreferences() async {
     final user = FirebaseAuth.instance.currentUser;
     if (user != null) {
@@ -97,55 +91,78 @@ class _IANutricionalScreenState extends State<IANutricionalScreen> {
             .get();
         if (userDoc.exists && userDoc.data() != null) {
           final data = userDoc.data()!;
-          final loadedDiet = data['dietaryPreferences'] ?? 'Ninguna';
           if (mounted) {
             setState(() {
-              _currentDiet = loadedDiet;
+              _currentDiet = data['dietaryPreferences'] ?? 'Ninguna';
               _numServings = data['householdSize'] ?? 1;
             });
           }
         }
       } catch (e) {
-        // print("Error al cargar preferencias: $e");
+        // print("Error preferences: $e");
       }
     }
   }
 
-  // --- CARGAR RECETAS DESDE FIRESTORE ---
   Future<void> _loadRecipesFromFirestore() async {
     try {
       final snapshot =
           await FirebaseFirestore.instance.collection('recipes').get();
-
       final List<Recipe> loadedRecipes = snapshot.docs.map((doc) {
         return Recipe.fromMap(doc.data(), doc.id);
       }).toList();
 
-      if (mounted) {
-        _allRecipesFromFirestore = loadedRecipes;
-      }
+      if (mounted) _allRecipesFromFirestore = loadedRecipes;
 
       if (_allRecipesFromFirestore.isEmpty) {
-        _errorMessage =
-            'No se encontraron recetas en la base de datos. Usa el botón en Inicio para subir una receta de prueba.';
+        _errorMessage = 'No se encontraron recetas en la base de datos.';
       }
     } catch (e) {
-      _errorMessage = 'Error al conectar con Firestore: ${e.toString()}';
+      _errorMessage = 'Error de conexión: ${e.toString()}';
     }
   }
 
-  // --- Lógica del Plan Semanal ---
+  // --- PARSEO SEGURO (EVITA PANTALLA ROJA) ---
+  String _parseGeminiResponse(http.Response response) {
+    if (response.statusCode != 200) {
+      throw Exception('Error API (${response.statusCode}): ${response.body}');
+    }
+
+    final jsonResponse = jsonDecode(utf8.decode(response.bodyBytes));
+
+    // Si 'candidates' no existe o está vacío, lanzamos error controlado
+    if (jsonResponse['candidates'] == null ||
+        (jsonResponse['candidates'] as List).isEmpty) {
+      throw Exception('La IA no devolvió resultados válidos.');
+    }
+
+    final parts = jsonResponse['candidates'][0]['content']['parts'] as List;
+    if (parts.isEmpty) {
+      throw Exception('Respuesta vacía.');
+    }
+
+    return parts[0]['text'] as String;
+  }
+
+  // --- PLAN SEMANAL ---
   Future<void> _generateWeeklyPlan(List<ScoredRecipe> candidateRecipesInfo,
       String availableItemsString) async {
     final List<Map<String, dynamic>> selectedRecipes =
         candidateRecipesInfo.map((s) => s.recipe.toJson()).toList();
-
     final selectedRecipesJson = jsonEncode(selectedRecipes);
 
+    // Prompt directo pero sin limitaciones técnicas extremas
     final prompt = """
-      Eres un planificador de comidas IA. Genera un plan de menú semanal (Lunes a Domingo) para $_numServings persona(s) y la dieta '$_currentDiet'.
-      Usa estas recetas base: $selectedRecipesJson
-      Formato de salida: Texto simple (Lunes: Desayuno..., Comida..., Cena...)
+      Genera un plan de menú semanal ($_numServings personas, dieta $_currentDiet).
+      Recetas base disponibles: $selectedRecipesJson.
+      
+      FORMATO OBLIGATORIO:
+      Empieza directamente con "Lunes:".
+      Usa este esquema para cada día:
+      Lunes:
+      Desayuno: ...
+      Comida: ...
+      Cena: ...
     """;
 
     try {
@@ -158,7 +175,10 @@ class _IANutricionalScreenState extends State<IANutricionalScreen> {
             ]
           }
         ],
-        "generationConfig": {"temperature": 0.6},
+        // ✅ QUITAMOS EL LÍMITE DE TOKENS PARA QUE NO FALLE
+        "generationConfig": {
+          "temperature": 0.7, // Creatividad estándar
+        },
       };
 
       final response = await _fetchWithExponentialBackoff(
@@ -166,33 +186,27 @@ class _IANutricionalScreenState extends State<IANutricionalScreen> {
         body: jsonEncode(payload),
       );
 
-      if (response.statusCode == 200) {
-        final jsonResponse = jsonDecode(utf8.decode(response.bodyBytes));
-        final generatedText = jsonResponse['candidates'][0]['content']['parts']
-            [0]['text'] as String;
+      final generatedText = _parseGeminiResponse(response);
 
-        if (mounted) {
-          _suggestedRecipes.add(SuggestedRecipeDetail(
-            title: "Plan Semanal para $_currentDiet",
-            adaptedContent: generatedText,
-            matchingIngredients: [],
-            imageUrl: candidateRecipesInfo.isNotEmpty
-                ? candidateRecipesInfo.first.recipe.imageUrl
-                : '',
-            recipeOriginalId: candidateRecipesInfo.isNotEmpty
-                ? candidateRecipesInfo.first.recipe.id
-                : '',
-          ));
-        }
-      } else {
-        throw Exception('API falló con código ${response.statusCode}.');
+      if (mounted) {
+        _suggestedRecipes.add(SuggestedRecipeDetail(
+          title: "Plan Semanal ($_currentDiet)",
+          adaptedContent: generatedText,
+          matchingIngredients: [],
+          imageUrl: candidateRecipesInfo.isNotEmpty
+              ? candidateRecipesInfo.first.recipe.imageUrl
+              : '',
+          recipeOriginalId: candidateRecipesInfo.isNotEmpty
+              ? candidateRecipesInfo.first.recipe.id
+              : '',
+        ));
       }
     } catch (e) {
-      _showError('Fallo al generar el plan semanal: ${e.toString()}');
+      _showError('Error al generar plan: $e');
     }
   }
 
-  // --- Lógica de Recetas Únicas ---
+  // --- RECETA ÚNICA ---
   Future<void> _generateSingleRecipes(List<ScoredRecipe> candidateRecipesInfo,
       String availableItemsString) async {
     for (final scoredRecipe in candidateRecipesInfo) {
@@ -201,10 +215,22 @@ class _IANutricionalScreenState extends State<IANutricionalScreen> {
       final recipeJson = jsonEncode(recipe.toJson());
 
       final prompt = """
-        Eres un chef IA. Adapta esta receta para $_numServings persona(s), dieta '$_currentDiet'.
+        Adapta esta receta para $_numServings persona(s), dieta '$_currentDiet'.
         Receta JSON: $recipeJson
-        Ingredientes disponibles: [$availableItemsString]
-        Salida: Texto limpio con Título, Descripción, Ingredientes Adaptados y Pasos.
+        Ingredientes disponibles: [$availableItemsString].
+
+        INSTRUCCIONES DE FORMATO:
+        1. NO saludes. Solo entrega la receta.
+        2. Usa estos encabezados exactos en mayúsculas:
+           DESCRIPCIÓN:
+           INGREDIENTES:
+           PASOS:
+        
+        Estructura:
+        [Título]
+        DESCRIPCIÓN: [Resumen]
+        INGREDIENTES: [Lista]
+        PASOS: [Lista numerada]
       """;
 
       try {
@@ -217,7 +243,10 @@ class _IANutricionalScreenState extends State<IANutricionalScreen> {
               ]
             }
           ],
-          "generationConfig": {"temperature": 0.5},
+          // ✅ QUITAMOS EL LÍMITE DE TOKENS
+          "generationConfig": {
+            "temperature": 0.5,
+          },
         };
 
         final response = await _fetchWithExponentialBackoff(
@@ -225,28 +254,28 @@ class _IANutricionalScreenState extends State<IANutricionalScreen> {
           body: jsonEncode(payload),
         );
 
-        if (response.statusCode == 200) {
-          final jsonResponse = jsonDecode(utf8.decode(response.bodyBytes));
-          final generatedText = jsonResponse['candidates'][0]['content']
-              ['parts'][0]['text'] as String;
+        final generatedText = _parseGeminiResponse(response);
 
-          if (mounted) {
-            _suggestedRecipes.add(SuggestedRecipeDetail(
-              title: recipe.title,
-              adaptedContent: generatedText,
-              matchingIngredients: matchingIngredients,
-              imageUrl: recipe.imageUrl,
-              recipeOriginalId: recipe.id,
-            ));
-          }
+        if (mounted) {
+          _suggestedRecipes.add(SuggestedRecipeDetail(
+            title: recipe.title,
+            adaptedContent: generatedText,
+            matchingIngredients: matchingIngredients,
+            imageUrl: recipe.imageUrl,
+            recipeOriginalId: recipe.id,
+          ));
         }
       } catch (e) {
-        _showError('Fallo al contactar a la IA: ${e.toString()}');
+        // print('Error al adaptar receta: $e');
       }
+    }
+
+    if (_suggestedRecipes.isEmpty && mounted) {
+      _showError('No se pudieron generar recetas. Verifica tu conexión.');
     }
   }
 
-  // --- Filtro ---
+  // --- FILTROS ---
   List<ScoredRecipe> _filterRecipes(
       List<ReceiptItem> items, String diet, int servings) {
     final recipesToFilter = _allRecipesFromFirestore;
@@ -263,10 +292,8 @@ class _IANutricionalScreenState extends State<IANutricionalScreen> {
       for (var ingredient in recipe.ingredients) {
         final ingredientNameLower = ingredient.name.toLowerCase();
         final hasMatch = availableItems
-            .firstWhere(
-              (item) => item.contains(ingredientNameLower),
-              orElse: () => '',
-            )
+            .firstWhere((item) => item.contains(ingredientNameLower),
+                orElse: () => '')
             .isNotEmpty;
         if (hasMatch) {
           score++;
@@ -280,7 +307,6 @@ class _IANutricionalScreenState extends State<IANutricionalScreen> {
     return scoredRecipes.where((s) => s.score > 0).take(3).toList();
   }
 
-  // --- Generación Principal ---
   Future<void> _generateRecipes() async {
     setState(() {
       _isLoading = true;
@@ -299,8 +325,7 @@ class _IANutricionalScreenState extends State<IANutricionalScreen> {
     if (candidateRecipesInfo.isEmpty) {
       setState(() {
         _isLoading = false;
-        _errorMessage =
-            'No se encontraron recetas coincidentes. Intenta con más ingredientes.';
+        _errorMessage = 'No hay recetas coincidentes con tus ingredientes.';
       });
       return;
     }
@@ -314,14 +339,7 @@ class _IANutricionalScreenState extends State<IANutricionalScreen> {
       await _generateSingleRecipes(candidateRecipesInfo, availableItemsString);
     }
 
-    if (_suggestedRecipes.isEmpty && _errorMessage == null) {
-      _errorMessage =
-          'Fallo la adaptación de todas las recetas o la IA no respondió.';
-    }
-
-    setState(() {
-      _isLoading = false;
-    });
+    setState(() => _isLoading = false);
   }
 
   Future<http.Response> _fetchWithExponentialBackoff(Uri uri,
@@ -332,14 +350,13 @@ class _IANutricionalScreenState extends State<IANutricionalScreen> {
       try {
         final response = await http.post(uri,
             headers: {'Content-Type': 'application/json'}, body: body);
-        if (response.statusCode < 500 && response.statusCode != 429) {
+        if (response.statusCode >= 500 || response.statusCode == 429) {
+          // retry
+        } else {
           return response;
         }
       } catch (e) {}
-      if (i < maxRetries - 1) {
-        final delay = initialDelay * (1 << i);
-        await Future.delayed(delay);
-      }
+      if (i < maxRetries - 1) await Future.delayed(initialDelay * (1 << i));
     }
     return http.Response('{"error": "Timeout"}', 500);
   }
@@ -352,29 +369,22 @@ class _IANutricionalScreenState extends State<IANutricionalScreen> {
     setState(() => _isLoading = false);
   }
 
-  // ============================================================
-  // WIDGETS DE UI (REDISEÑADOS)
-  // ============================================================
+  // ================= UI =================
 
   @override
   Widget build(BuildContext context) {
-    // Si carga, pantalla completa verde
     if (_isLoading) {
       return const Scaffold(
         body: CustomLogoLoader(
-          text: 'Cargando recetas y adaptándolas para ti...',
-        ),
+            text: 'Cargando recetas y adaptándolas para ti...'),
       );
     }
 
-    // AppBar Verde con texto blanco
     return Scaffold(
-      backgroundColor: Colors.grey[50], // Fondo muy suave
+      backgroundColor: Colors.grey[50],
       appBar: AppBar(
-        title: const Text(
-          'IA Nutricional',
-          style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
-        ),
+        title: const Text('IA Nutricional',
+            style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
         centerTitle: true,
         backgroundColor: const Color(0xFF4CAF50),
         iconTheme: const IconThemeData(color: Colors.white),
@@ -431,10 +441,9 @@ class _IANutricionalScreenState extends State<IANutricionalScreen> {
                       ? 'Tu Plan Semanal'
                       : 'Recetas Sugeridas',
                   style: const TextStyle(
-                    fontSize: 20,
-                    fontWeight: FontWeight.bold,
-                    color: Colors.black87,
-                  ),
+                      fontSize: 20,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.black87),
                 ),
               ),
             ],
@@ -447,7 +456,6 @@ class _IANutricionalScreenState extends State<IANutricionalScreen> {
     );
   }
 
-  // --- TARJETA DE OPCIONES REDISEÑADA ---
   Widget _buildModificationOptions() {
     return Container(
       padding: const EdgeInsets.all(20),
@@ -456,26 +464,20 @@ class _IANutricionalScreenState extends State<IANutricionalScreen> {
         borderRadius: BorderRadius.circular(20),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.05),
-            blurRadius: 10,
-            offset: const Offset(0, 4),
-          ),
+              color: Colors.black.withOpacity(0.05),
+              blurRadius: 10,
+              offset: const Offset(0, 4))
         ],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text(
-            'Ajustar Preferencias',
-            style: TextStyle(
-              fontSize: 18,
-              fontWeight: FontWeight.bold,
-              color: Colors.black87,
-            ),
-          ),
+          const Text('Ajustar Preferencias',
+              style: TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.black87)),
           const Divider(height: 24),
-
-          // Selector de Modo
           _buildDropdownLabel('Modo de Sugerencia'),
           _buildStyledDropdown<String>(
             value: _menuType,
@@ -488,8 +490,6 @@ class _IANutricionalScreenState extends State<IANutricionalScreen> {
             },
           ),
           const SizedBox(height: 16),
-
-          // Selector de Dieta
           _buildDropdownLabel('Tipo de Dieta'),
           _buildStyledDropdown<String>(
             value: _currentDiet,
@@ -499,8 +499,6 @@ class _IANutricionalScreenState extends State<IANutricionalScreen> {
             },
           ),
           const SizedBox(height: 16),
-
-          // Selector de Raciones y Botón
           Row(
             crossAxisAlignment: CrossAxisAlignment.end,
             children: [
@@ -522,7 +520,7 @@ class _IANutricionalScreenState extends State<IANutricionalScreen> {
               const SizedBox(width: 12),
               Expanded(
                 child: SizedBox(
-                  height: 50, // Misma altura que el input
+                  height: 50,
                   child: ElevatedButton(
                     onPressed: _isLoading ? null : _generateRecipes,
                     style: ElevatedButton.styleFrom(
@@ -530,13 +528,10 @@ class _IANutricionalScreenState extends State<IANutricionalScreen> {
                       foregroundColor: Colors.white,
                       elevation: 0,
                       shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12),
-                      ),
+                          borderRadius: BorderRadius.circular(12)),
                     ),
-                    child: const Text(
-                      'Re-Adaptar',
-                      style: TextStyle(fontWeight: FontWeight.bold),
-                    ),
+                    child: const Text('Re-Adaptar',
+                        style: TextStyle(fontWeight: FontWeight.bold)),
                   ),
                 ),
               ),
@@ -550,14 +545,11 @@ class _IANutricionalScreenState extends State<IANutricionalScreen> {
   Widget _buildDropdownLabel(String text) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 6),
-      child: Text(
-        text,
-        style: TextStyle(
-          fontSize: 12,
-          fontWeight: FontWeight.w600,
-          color: Colors.grey[600],
-        ),
-      ),
+      child: Text(text,
+          style: TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
+              color: Colors.grey[600])),
     );
   }
 
@@ -570,12 +562,8 @@ class _IANutricionalScreenState extends State<IANutricionalScreen> {
       value: value,
       items: items
           .map((item) => DropdownMenuItem(
-                value: item,
-                child: Text(
-                  '$item',
-                  style: const TextStyle(fontSize: 14),
-                ),
-              ))
+              value: item,
+              child: Text('$item', style: const TextStyle(fontSize: 14))))
           .toList(),
       onChanged: onChanged,
       decoration: InputDecoration(
@@ -584,30 +572,24 @@ class _IANutricionalScreenState extends State<IANutricionalScreen> {
         filled: true,
         fillColor: Colors.grey[50],
         border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(12),
-          borderSide: BorderSide.none,
-        ),
+            borderRadius: BorderRadius.circular(12),
+            borderSide: BorderSide.none),
         enabledBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(12),
-          borderSide: BorderSide(color: Colors.grey.shade200),
-        ),
+            borderRadius: BorderRadius.circular(12),
+            borderSide: BorderSide(color: Colors.grey.shade200)),
         focusedBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(12),
-          borderSide: const BorderSide(color: Color(0xFF4CAF50)),
-        ),
+            borderRadius: BorderRadius.circular(12),
+            borderSide: const BorderSide(color: Color(0xFF4CAF50))),
       ),
       icon: const Icon(Icons.arrow_drop_down_circle_outlined,
           color: Colors.grey, size: 20),
     );
   }
 
-  // --- LISTA DE RECETAS REDISEÑADA ---
   Widget _buildRecipeListView() {
-    // Aquí llamamos a _buildWeeklyPlanView, que AHORA SÍ ESTÁ DEFINIDA
     if (_menuType == 'Plan Semanal' && _suggestedRecipes.isNotEmpty) {
       return _buildWeeklyPlanView(_suggestedRecipes.first);
     }
-
     return SizedBox(
       height: 340,
       child: ListView.builder(
@@ -622,7 +604,6 @@ class _IANutricionalScreenState extends State<IANutricionalScreen> {
     );
   }
 
-  // --- VISTA DE PLAN SEMANAL (QUE FALTABA) ---
   Widget _buildWeeklyPlanView(SuggestedRecipeDetail menuResult) {
     final List<String> days = menuResult.adaptedContent.split(RegExp(
         r'\n(?=Lunes|Martes|Miércoles|Jueves|Viernes|Sábado|Domingo)',
@@ -677,7 +658,7 @@ class _IANutricionalScreenState extends State<IANutricionalScreen> {
               recipeId: item.recipeOriginalId,
               currentServings: _numServings,
               currentDiet: _currentDiet,
-              imageUrl: item.imageUrl, // ⬅️ ⭐️ AGREGAR ESTA LÍNEA
+              imageUrl: item.imageUrl,
             ),
           ),
         );
@@ -690,16 +671,14 @@ class _IANutricionalScreenState extends State<IANutricionalScreen> {
           borderRadius: BorderRadius.circular(20),
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withOpacity(0.08),
-              blurRadius: 12,
-              offset: const Offset(0, 6),
-            ),
+                color: Colors.black.withOpacity(0.08),
+                blurRadius: 12,
+                offset: const Offset(0, 6))
           ],
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // --- IMAGEN OPTIMIZADA CON CACHÉ ---
             ClipRRect(
               borderRadius:
                   const BorderRadius.vertical(top: Radius.circular(20)),
@@ -711,133 +690,84 @@ class _IANutricionalScreenState extends State<IANutricionalScreen> {
                         imageUrl: item.imageUrl,
                         fit: BoxFit.cover,
                         fadeInDuration: const Duration(milliseconds: 500),
-                        placeholder: (context, url) => Container(
-                          color: Colors.grey[50],
-                          child: const Center(
-                            child: SizedBox(
-                              width: 30,
-                              height: 30,
-                              child: CircularProgressIndicator(
-                                color: Color(0xFF4CAF50),
-                                strokeWidth: 2.5,
-                              ),
-                            ),
-                          ),
-                        ),
+                        placeholder: (context, url) =>
+                            Container(color: Colors.grey[50]),
                         errorWidget: (context, url, error) => Container(
                           color: const Color(0xFFE8F5E9),
-                          child: const Column(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              Icon(Icons.restaurant_menu_rounded,
-                                  size: 40, color: Color(0xFFA5D6A7)),
-                              SizedBox(height: 4),
-                              Text("Sin imagen",
-                                  style: TextStyle(
-                                      fontSize: 10, color: Colors.grey))
-                            ],
-                          ),
+                          child: const Icon(Icons.restaurant_menu,
+                              size: 40, color: Color(0xFFA5D6A7)),
                         ),
                       )
                     : Container(
                         color: const Color(0xFFE8F5E9),
                         child: const Center(
-                          child: Icon(Icons.restaurant_menu,
-                              size: 50, color: Color(0xFF4CAF50)),
-                        ),
+                            child: Icon(Icons.restaurant_menu,
+                                size: 50, color: Color(0xFF4CAF50))),
                       ),
               ),
             ),
-
-            // CONTENIDO TEXTUAL
             Padding(
               padding: const EdgeInsets.all(16.0),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(
-                    item.title,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.bold,
-                      color: Colors.black87,
-                    ),
-                  ),
+                  Text(item.title,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.black87)),
                   const SizedBox(height: 4),
-                  Text(
-                    '$_numServings raciones • $_currentDiet',
-                    style: TextStyle(
-                      fontSize: 12,
-                      color: Colors.grey[600],
-                      fontWeight: FontWeight.w500,
-                    ),
-                  ),
+                  Text('$_numServings raciones • $_currentDiet',
+                      style: TextStyle(
+                          fontSize: 12,
+                          color: Colors.grey[600],
+                          fontWeight: FontWeight.w500)),
                   const SizedBox(height: 12),
-
-                  // BADGE DE INGREDIENTES
                   Container(
                     padding:
                         const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
                     decoration: BoxDecoration(
-                      color: const Color(0xFFE8F5E9),
-                      borderRadius: BorderRadius.circular(12),
-                    ),
+                        color: const Color(0xFFE8F5E9),
+                        borderRadius: BorderRadius.circular(12)),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        const Row(
-                          children: [
-                            Icon(Icons.check_circle_outline,
-                                size: 14, color: Color(0xFF4CAF50)),
-                            SizedBox(width: 4),
-                            Text(
-                              'Tienes:',
+                        const Row(children: [
+                          Icon(Icons.check_circle_outline,
+                              size: 14, color: Color(0xFF4CAF50)),
+                          SizedBox(width: 4),
+                          Text('Tienes:',
                               style: TextStyle(
-                                fontSize: 10,
-                                fontWeight: FontWeight.bold,
-                                color: Color(0xFF4CAF50),
-                              ),
-                            ),
-                          ],
-                        ),
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.bold,
+                                  color: Color(0xFF4CAF50)))
+                        ]),
                         const SizedBox(height: 2),
-                        Text(
-                          item.matchingIngredients.join(', '),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: TextStyle(
-                            fontSize: 12,
-                            color: Colors.grey[800],
-                          ),
-                        ),
+                        Text(item.matchingIngredients.join(', '),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                                fontSize: 12, color: Colors.grey[800])),
                       ],
                     ),
                   ),
                 ],
               ),
             ),
-
             const Spacer(),
-
-            // FOOTER DE LA TARJETA
             Container(
               width: double.infinity,
               padding: const EdgeInsets.symmetric(vertical: 12),
               decoration: const BoxDecoration(
-                border: Border(top: BorderSide(color: Color(0xFFF0F0F0))),
-              ),
+                  border: Border(top: BorderSide(color: Color(0xFFF0F0F0)))),
               child: const Center(
-                child: Text(
-                  'Ver Receta',
-                  style: TextStyle(
-                    color: Color(0xFF4CAF50),
-                    fontWeight: FontWeight.bold,
-                    fontSize: 14,
-                  ),
-                ),
-              ),
+                  child: Text('Ver Receta',
+                      style: TextStyle(
+                          color: Color(0xFF4CAF50),
+                          fontWeight: FontWeight.bold,
+                          fontSize: 14))),
             ),
           ],
         ),

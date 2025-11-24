@@ -2,7 +2,7 @@
 
 import 'dart:io';
 import 'package:flutter/material.dart';
-import 'package:firebase_auth/firebase_auth.dart';
+// import 'package:firebase_auth/firebase_auth.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:nutriticket/custom_loader.dart'; // Asegúrate que la ruta sea correcta
 
@@ -11,6 +11,7 @@ import 'dart:convert';
 import 'package:mime/mime.dart';
 // ⛔️ ELIMINAMOS EL IMPORT DE 'main.dart' que ya no se usa aquí
 import 'package:nutriticket/receipt_item.dart'; // Para el modelo de datos
+import 'package:nutriticket/secrets.dart'; // Importa tu archivo secreto
 
 import 'perfil_screen.dart';
 import 'recetas_screen.dart';
@@ -29,7 +30,7 @@ class _HomeScreenState extends State<HomeScreen> {
   List<ReceiptItem> _receiptItems = [];
 
   // ... (apiKey y apiUrl se quedan igual) ...
-  final String apiKey = "AIzaSyAKOqp3_MS-b4ElNaNe01tGaYidUSJyZm8";
+  final String apiKey = googleApiKey;
   final String apiUrl =
       "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent";
 
