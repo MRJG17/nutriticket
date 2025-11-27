@@ -5,7 +5,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:nutriticket/recipe.dart';
 import 'package:nutriticket/recipe_detail_screen.dart';
-import 'package:cached_network_image/cached_network_image.dart'; // 1. Importar imágenes caché
+import 'package:cached_network_image/cached_network_image.dart';
 
 class RecetasScreen extends StatefulWidget {
   const RecetasScreen({super.key});
@@ -27,7 +27,7 @@ class _RecetasScreenState extends State<RecetasScreen> {
     super.dispose();
   }
 
-  // --- STREAM DE DATOS (Misma lógica de antes) ---
+  // --- STREAM DE DATOS ---
   Stream<List<Map<String, dynamic>>> _loadFavoritesStream(String userId) {
     final firestore = FirebaseFirestore.instance;
     final favoritesCollectionRef = firestore
@@ -53,12 +53,16 @@ class _RecetasScreenState extends State<RecetasScreen> {
           final Recipe originalRecipe =
               Recipe.fromMap(recipeDoc.data()!, recipeDoc.id);
 
+          // ⭐️ CORRECCIÓN: Ahora incluimos la descripción al principio
+          // Usamos las palabras clave exactas (DESCRIPCIÓN, INGREDIENTES, INSTRUCCIONES)
+          // para que el RecipeDetailScreen las detecte y ponga las cajas verdes.
           final String originalContent =
-              '**INGREDIENTES ORIGINALES (${originalRecipe.baseServings} porciones):**\n' +
+              'DESCRIPCIÓN:\n${originalRecipe.description}\n\n' +
+                  'INGREDIENTES (${originalRecipe.baseServings} porciones):\n' +
                   originalRecipe.ingredients
                       .map((i) => '* ${i.name}: ${i.quantity} ${i.unit}')
                       .join('\n') +
-                  '\n\n**INSTRUCCIONES:**\n' +
+                  '\n\nINSTRUCCIONES:\n' +
                   originalRecipe.instructions;
 
           return {
@@ -96,7 +100,7 @@ class _RecetasScreenState extends State<RecetasScreen> {
           recipeId: recipeId,
           currentServings: servings,
           currentDiet: diet,
-          imageUrl: recipe.imageUrl, // Pasamos la imagen
+          imageUrl: recipe.imageUrl,
         ),
       ),
     );
@@ -114,13 +118,12 @@ class _RecetasScreenState extends State<RecetasScreen> {
           'Recetas Favoritas',
           style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
         ),
-        centerTitle: false, // ⭐️ CORRECCIÓN: Alineado a la izquierda
+        centerTitle: false,
         automaticallyImplyLeading: false,
       ),
       body: Column(
         children: [
-          // ... (El resto del código de la barra de búsqueda y el contenido sigue igual)
-          // 2. BARRA DE HERRAMIENTAS
+          // BARRA DE HERRAMIENTAS
           Container(
             padding: const EdgeInsets.all(16.0),
             color: Colors.white,
@@ -178,7 +181,7 @@ class _RecetasScreenState extends State<RecetasScreen> {
             ),
           ),
 
-          // 3. CONTENIDO
+          // CONTENIDO
           Expanded(
             child: user == null
                 ? const Center(child: Text('Inicia sesión para ver recetas.'))
@@ -247,7 +250,7 @@ class _RecetasScreenState extends State<RecetasScreen> {
           onTap: () => _navigateToRecipeDetail(context, detail),
           child: Container(
             margin: const EdgeInsets.only(bottom: 16),
-            height: 110, // Altura fija para uniformidad
+            height: 110,
             decoration: BoxDecoration(
               color: Colors.white,
               borderRadius: BorderRadius.circular(15),
@@ -306,7 +309,6 @@ class _RecetasScreenState extends State<RecetasScreen> {
                           ),
                         ),
                         const SizedBox(height: 4),
-                        // Descripción cortita
                         Text(
                           recipe.description.isNotEmpty
                               ? recipe.description
@@ -317,7 +319,6 @@ class _RecetasScreenState extends State<RecetasScreen> {
                               TextStyle(fontSize: 12, color: Colors.grey[600]),
                         ),
                         const Spacer(),
-                        // Chips pequeños
                         Row(
                           children: [
                             Icon(Icons.people_outline,
@@ -340,7 +341,6 @@ class _RecetasScreenState extends State<RecetasScreen> {
                     ),
                   ),
                 ),
-                // FLECHA
                 const Padding(
                   padding: EdgeInsets.only(right: 12.0),
                   child: Icon(Icons.arrow_forward_ios,
@@ -354,13 +354,13 @@ class _RecetasScreenState extends State<RecetasScreen> {
     );
   }
 
-  // --- VISTA DE CUADRÍCULA (Minimalista) ---
+  // --- VISTA DE CUADRÍCULA ---
   Widget _buildGridView(List<Map<String, dynamic>> favorites) {
     return GridView.builder(
       padding: const EdgeInsets.all(16),
       gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-        crossAxisCount: 2, // 2 Columnas
-        childAspectRatio: 0.8, // Proporción ancho/alto
+        crossAxisCount: 2,
+        childAspectRatio: 0.8,
         crossAxisSpacing: 16,
         mainAxisSpacing: 16,
       ),
@@ -385,7 +385,6 @@ class _RecetasScreenState extends State<RecetasScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // IMAGEN GRANDE
                 Expanded(
                   flex: 3,
                   child: ClipRRect(
@@ -417,7 +416,6 @@ class _RecetasScreenState extends State<RecetasScreen> {
                     ),
                   ),
                 ),
-                // TÍTULO MINIMALISTA
                 Expanded(
                   flex: 1,
                   child: Padding(

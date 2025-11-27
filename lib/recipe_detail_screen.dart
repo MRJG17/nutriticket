@@ -112,18 +112,12 @@ class _RecipeDetailScreenState extends State<RecipeDetailScreen> {
     }
   }
 
-  // --- LÓGICA MEJORADA DE PARSEO ---
+  // --- ⭐️ LÓGICA CORREGIDA: Detectar sección para separar pasos ⭐️ ---
   List<Widget> _parseContent(String content) {
-    // ⭐️ TRUCO NUEVO: Pre-formatear el texto
-    // Buscamos números escondidos (ej: "mezclar. 2. cocinar") y les metemos un ENTER antes.
-    // Regex: Busca un espacio seguido de un dígito y un punto, que NO esté al inicio de la línea.
-    String formattedContent = content.replaceAllMapped(
-      RegExp(r'(?<!^)(\s+)(\d+\.)'),
-      (match) => '\n${match.group(2)}',
-    );
-
     final List<Widget> widgets = [];
-    final lines = formattedContent.split('\n');
+
+    // Dividimos por líneas. No aplicamos ningún regex global que borre texto.
+    final lines = content.split('\n');
 
     final List<String> headerKeywords = [
       'INGREDIENTES',
@@ -133,21 +127,41 @@ class _RecipeDetailScreenState extends State<RecipeDetailScreen> {
       'DESCRIPCIÓN'
     ];
 
+    // Solo en estas secciones buscaremos separar los números
+    final List<String> stepsKeywords = [
+      'PASOS',
+      'PREPARACIÓN',
+      'INSTRUCCIONES'
+    ];
+
+    bool isStepSection =
+        false; // Bandera para saber si estamos en zona de pasos
+
     for (var line in lines) {
       String trimmed = line.trim();
       if (trimmed.isEmpty) continue;
 
+      // Limpiamos negritas del markdown si las hay
       trimmed = trimmed.replaceAll('**', '');
 
       bool isHeader = false;
       String headerText = "";
       String remainingText = "";
 
+      // 1. Verificar si la línea es un Encabezado (Titulo)
       for (final keyword in headerKeywords) {
         if (trimmed.toUpperCase().startsWith(keyword)) {
           isHeader = true;
-          int splitIndex = trimmed.indexOf(':');
 
+          // Activamos la bandera SOLO si es una sección de pasos
+          if (stepsKeywords.contains(keyword)) {
+            isStepSection = true;
+          } else {
+            isStepSection =
+                false; // Si es Ingredientes o Descripción, apagamos la bandera
+          }
+
+          int splitIndex = trimmed.indexOf(':');
           if (splitIndex != -1) {
             headerText = trimmed.substring(0, splitIndex).trim();
             remainingText = trimmed.substring(splitIndex + 1).trim();
@@ -163,24 +177,55 @@ class _RecipeDetailScreenState extends State<RecipeDetailScreen> {
       }
 
       if (isHeader) {
+        // --- A. ES UN TÍTULO ---
         widgets.add(const SizedBox(height: 24));
         widgets.add(_buildSectionHeader(headerText));
         widgets.add(const SizedBox(height: 12));
+
+        // Si hay texto en la misma línea del título
         if (remainingText.isNotEmpty) {
-          widgets.add(_buildNormalText(remainingText));
+          if (isStepSection) {
+            _processStepText(remainingText, widgets);
+          } else {
+            widgets.add(_buildNormalText(remainingText));
+          }
         }
-      }
-      // Detectamos si es una lista (Asterisco o Número "1.")
-      else if (trimmed.startsWith('*') || RegExp(r'^\d+\.').hasMatch(trimmed)) {
-        // Limpiamos el asterisco si existe, pero dejamos el número si es un paso
-        String cleanLine =
-            trimmed.startsWith('*') ? trimmed.substring(1).trim() : trimmed;
-        widgets.add(_buildListItem(cleanLine));
       } else {
-        widgets.add(_buildNormalText(trimmed));
+        // --- B. ES CONTENIDO ---
+        if (isStepSection) {
+          // ⭐️ SOLO AQUÍ aplicamos la separación de números
+          _processStepText(trimmed, widgets);
+        } else {
+          // Comportamiento normal para Ingredientes y Descripción
+          if (trimmed.startsWith('*') || RegExp(r'^\d+\.').hasMatch(trimmed)) {
+            String cleanLine =
+                trimmed.startsWith('*') ? trimmed.substring(1).trim() : trimmed;
+            widgets.add(_buildListItem(cleanLine));
+          } else {
+            widgets.add(_buildNormalText(trimmed));
+          }
+        }
       }
     }
     return widgets;
+  }
+
+  // ⭐️ HELPER INTELIGENTE ⭐️
+  void _processStepText(String text, List<Widget> widgets) {
+    // Regex explicada:
+    // (\s+)   -> Busca un espacio antes del número (o inicio de línea)
+    // (\d+\.) -> Busca el número y el punto (ej: "2.")
+    // (?!\d)  -> Asegura que NO haya otro dígito después (evita romper "2.5")
+    String formatted = text.replaceAllMapped(
+        RegExp(r'(\s+)(\d+\.)(?!\d)'), (match) => '\n${match.group(2)} ');
+
+    final subLines = formatted.split('\n');
+    for (var sub in subLines) {
+      if (sub.trim().isNotEmpty) {
+        // Usamos el diseño de lista (puntito verde)
+        widgets.add(_buildListItem(sub.trim()));
+      }
+    }
   }
 
   Widget _buildSectionHeader(String text) {
@@ -219,7 +264,6 @@ class _RecipeDetailScreenState extends State<RecipeDetailScreen> {
         children: [
           const Padding(
             padding: EdgeInsets.only(top: 6.0),
-            // El puntito verde que querías
             child: Icon(Icons.circle, size: 8, color: Color(0xFF4CAF50)),
           ),
           const SizedBox(width: 12),
@@ -364,7 +408,7 @@ class _RecipeDetailScreenState extends State<RecipeDetailScreen> {
                   ),
                   const Divider(height: 30),
 
-                  // Contenido con el parseo inteligente
+                  // Contenido Inteligente
                   ..._parseContent(widget.recipeContent),
 
                   const SizedBox(height: 40),
