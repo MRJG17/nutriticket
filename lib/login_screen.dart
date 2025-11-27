@@ -20,9 +20,8 @@ class _LoginScreenState extends State<LoginScreen> {
     super.dispose();
   }
 
-  // --- FUNCIÓN DE LOGIN (SIN CAMBIOS) ---
+  // --- FUNCIÓN DE LOGIN ---
   Future<void> _loginUser() async {
-    // Muestra un indicador de carga
     showDialog(
       context: context,
       barrierDismissible: false,
@@ -35,12 +34,10 @@ class _LoginScreenState extends State<LoginScreen> {
         password: _passwordController.text.trim(),
       );
 
-      // Si el login es exitoso, cerramos todas las pantallas hasta llegar al AuthWrapper
       if (mounted) {
         Navigator.of(context).popUntil((route) => route.isFirst);
       }
     } on FirebaseAuthException catch (e) {
-      // Primero, cerramos el diálogo de carga antes de mostrar el error
       if (mounted) Navigator.pop(context);
 
       String errorMessage = "Usuario o Contraseña Incorrecta.";
@@ -62,7 +59,7 @@ class _LoginScreenState extends State<LoginScreen> {
     }
   }
 
-  // --- ✅ 1. NUEVA FUNCIÓN PARA MODO INVITADO ---
+  // --- FUNCIÓN PARA MODO INVITADO ---
   Future<void> _signInAsGuest() async {
     showDialog(
       context: context,
@@ -71,18 +68,14 @@ class _LoginScreenState extends State<LoginScreen> {
     );
 
     try {
-      // Usamos la autenticación anónima de Firebase
       await FirebaseAuth.instance.signInAnonymously();
-
-      // Cerramos todo, el AuthWrapper nos redirigirá al HomeScreen
       if (mounted) {
         Navigator.of(context).popUntil((route) => route.isFirst);
       }
     } on FirebaseAuthException catch (e) {
-      if (mounted) Navigator.pop(context); // Oculta el diálogo de carga
+      if (mounted) Navigator.pop(context);
 
       String errorMessage = 'No se pudo conectar como invitado.';
-      // Este error es común si no has habilitado el método anónimo en la consola de Firebase
       if (e.code == 'operation-not-allowed') {
         errorMessage = 'El modo invitado no está habilitado en el servidor.';
       }
@@ -94,7 +87,151 @@ class _LoginScreenState extends State<LoginScreen> {
       }
     }
   }
-  // --- ✅ FIN DE LA NUEVA FUNCIÓN ---
+
+  // --- ✅ FUNCIÓN: RECUPERAR CONTRASEÑA MEJORADA ---
+  Future<void> _showForgotPasswordDialog() async {
+    final TextEditingController resetEmailController = TextEditingController();
+
+    // Autocompletar si ya escribió el correo
+    if (_emailController.text.isNotEmpty) {
+      resetEmailController.text = _emailController.text;
+    }
+
+    return showDialog(
+      context: context, // Usa el contexto de la Pantalla Principal
+      // Usamos 'dialogContext' para referirnos a ESTE diálogo específico
+      builder: (dialogContext) {
+        return AlertDialog(
+          shape:
+              RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
+          title: const Text('Recuperar Contraseña'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Text(
+                'Ingresa tu correo electrónico y te enviaremos un enlace para restablecer tu contraseña.',
+                style: TextStyle(fontSize: 14, color: Colors.black54),
+              ),
+              const SizedBox(height: 20),
+              TextField(
+                controller: resetEmailController,
+                keyboardType: TextInputType.emailAddress,
+                decoration: InputDecoration(
+                  labelText: 'Correo Electrónico',
+                  prefixIcon: const Icon(Icons.email_outlined),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                ),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () =>
+                  Navigator.pop(dialogContext), // Cerramos usando dialogContext
+              child:
+                  const Text('Cancelar', style: TextStyle(color: Colors.grey)),
+            ),
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFF4CAF50),
+                foregroundColor: Colors.white,
+                shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(8)),
+              ),
+              onPressed: () async {
+                final email = resetEmailController.text.trim();
+
+                if (email.isEmpty) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                        content: Text('Por favor, ingresa un correo.')),
+                  );
+                  return;
+                }
+
+                // 1. Cerramos el diálogo de entrada
+                Navigator.pop(dialogContext);
+
+                // 2. Mostramos carga (Usamos 'context' principal)
+                showDialog(
+                  context: context,
+                  barrierDismissible: false,
+                  builder: (context) =>
+                      const Center(child: CircularProgressIndicator()),
+                );
+
+                try {
+                  await FirebaseAuth.instance
+                      .sendPasswordResetEmail(email: email);
+
+                  if (mounted) {
+                    // 3. Cerramos la carga
+                    Navigator.pop(context);
+
+                    // ✅ 4. MOSTRAMOS EL DIÁLOGO DE INSTRUCCIONES (MEJORA UX)
+                    showDialog(
+                      context: context,
+                      builder: (context) => AlertDialog(
+                        shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(15)),
+                        title: const Row(
+                          children: [
+                            Icon(Icons.mark_email_read,
+                                color: Color(0xFF4CAF50)),
+                            SizedBox(width: 10),
+                            Text('¡Correo Enviado!'),
+                          ],
+                        ),
+                        content: const Text(
+                          'Hemos enviado un enlace seguro a tu correo.\n\n'
+                          '1. Abre el correo de "Equipo NutriTicket".\n'
+                          '2. Toca el enlace para crear tu nueva contraseña.\n'
+                          '3. Vuelve aquí e inicia sesión con tu nueva clave.',
+                          style: TextStyle(fontSize: 15, height: 1.5),
+                        ),
+                        actions: [
+                          TextButton(
+                            onPressed: () => Navigator.pop(context),
+                            child: const Text(
+                              'Entendido',
+                              style: TextStyle(
+                                  color: Color(0xFF4CAF50),
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 16),
+                            ),
+                          ),
+                        ],
+                      ),
+                    );
+                  }
+                } on FirebaseAuthException catch (e) {
+                  // Si falla, cerramos la carga usando el contexto principal
+                  if (mounted) Navigator.pop(context);
+
+                  String errorMsg = 'Error al enviar el correo.';
+                  if (e.code == 'user-not-found') {
+                    errorMsg = 'No existe una cuenta con este correo.';
+                  } else if (e.code == 'invalid-email') {
+                    errorMsg = 'El formato del correo no es válido.';
+                  }
+
+                  if (mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                          content: Text(errorMsg), backgroundColor: Colors.red),
+                    );
+                  }
+                }
+              },
+              child: const Text('Enviar'),
+            ),
+          ],
+        );
+      },
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -111,10 +248,9 @@ class _LoginScreenState extends State<LoginScreen> {
           icon: const Icon(Icons.arrow_back, color: Colors.black),
           onPressed: () => Navigator.pop(context),
         ),
-        // --- ✅ 2. AÑADIR EL BOTÓN DE "MODO INVITADO" ---
         actions: [
           TextButton(
-            onPressed: _signInAsGuest, // Llama a la nueva función
+            onPressed: _signInAsGuest,
             child: const Text(
               'Modo Invitado',
               style: TextStyle(
@@ -125,7 +261,6 @@ class _LoginScreenState extends State<LoginScreen> {
           ),
           const SizedBox(width: 10),
         ],
-        // --- ✅ FIN DE LA MODIFICACIÓN ---
       ),
       body: Center(
         child: SingleChildScrollView(
@@ -133,8 +268,6 @@ class _LoginScreenState extends State<LoginScreen> {
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              // ... (El resto de la UI: logo, campos de texto, botones)
-              // ... (NO HAY MÁS CAMBIOS EN EL BODY) ...
               ConstrainedBox(
                 constraints: const BoxConstraints(
                   maxHeight: 220,
@@ -145,7 +278,7 @@ class _LoginScreenState extends State<LoginScreen> {
 
               const SizedBox(height: 40),
 
-              // Campo de texto para Correo Electrónico
+              // Campo Email
               TextField(
                 controller: _emailController,
                 keyboardType: TextInputType.emailAddress,
@@ -164,7 +297,7 @@ class _LoginScreenState extends State<LoginScreen> {
 
               const SizedBox(height: 20),
 
-              // Campo de texto para Contraseña
+              // Campo Contraseña
               TextField(
                 controller: _passwordController,
                 obscureText: true,
@@ -183,13 +316,12 @@ class _LoginScreenState extends State<LoginScreen> {
 
               const SizedBox(height: 10),
 
-              // Botón de "Olvidaste tu contraseña"
+              // Botón de "¿Olvidaste tu contraseña?"
               Align(
                 alignment: Alignment.centerRight,
                 child: TextButton(
-                  onPressed: () {
-                    // TODO: Implementar lógica de recuperación de contraseña
-                  },
+                  onPressed:
+                      _showForgotPasswordDialog, // Llama a la nueva función
                   child: const Text(
                     '¿Olvidaste tu Contraseña?',
                     style: TextStyle(color: Color(0xFF4CAF50)),
@@ -199,7 +331,7 @@ class _LoginScreenState extends State<LoginScreen> {
 
               const SizedBox(height: 20),
 
-              // Botón principal de Iniciar Sesión
+              // Botón Iniciar Sesión
               SizedBox(
                 width: double.infinity,
                 height: 50,
@@ -222,7 +354,7 @@ class _LoginScreenState extends State<LoginScreen> {
 
               const SizedBox(height: 20),
 
-              // Botón para navegar a la pantalla de registro
+              // Botón Registro
               TextButton(
                 onPressed: () {
                   Navigator.push(
@@ -245,7 +377,6 @@ class _LoginScreenState extends State<LoginScreen> {
 
               const SizedBox(height: 30),
 
-              // Divisor con texto
               Row(
                 children: [
                   const Expanded(child: Divider(color: Colors.grey)),
@@ -262,13 +393,12 @@ class _LoginScreenState extends State<LoginScreen> {
 
               const SizedBox(height: 20),
 
-              // Iconos de redes sociales
               Row(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
                   GestureDetector(
                     onTap: () {
-                      // TODO: Implementar inicio de sesión con Google
+                      // TODO: Implementar Google Sign-In
                     },
                     child: CircleAvatar(
                       radius: socialIconRadius.clamp(25.0, 35.0),
@@ -279,7 +409,7 @@ class _LoginScreenState extends State<LoginScreen> {
                   const SizedBox(width: 30),
                   GestureDetector(
                     onTap: () {
-                      // TODO: Implementar inicio de sesión con Facebook
+                      // TODO: Implementar Facebook Sign-In
                     },
                     child: CircleAvatar(
                       radius: socialIconRadius.clamp(25.0, 35.0),
