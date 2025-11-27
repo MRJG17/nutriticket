@@ -5,7 +5,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 
-class RecipeDetailScreen extends StatelessWidget {
+class RecipeDetailScreen extends StatefulWidget {
   final String recipeContent;
   final String recipeTitle;
   final String recipeId;
@@ -23,50 +23,138 @@ class RecipeDetailScreen extends StatelessWidget {
     this.imageUrl,
   });
 
+  @override
+  State<RecipeDetailScreen> createState() => _RecipeDetailScreenState();
+}
+
+class _RecipeDetailScreenState extends State<RecipeDetailScreen> {
+  bool _isFavorite = false;
+  bool _isLoading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _checkIfFavorite();
+  }
+
+  Future<void> _checkIfFavorite() async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return;
+
+    try {
+      final doc = await FirebaseFirestore.instance
+          .collection('userFavorites')
+          .doc(user.uid)
+          .collection('favorites')
+          .doc(widget.recipeId)
+          .get();
+
+      if (mounted) {
+        setState(() {
+          _isFavorite = doc.exists;
+          _isLoading = false;
+        });
+      }
+    } catch (e) {
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
+  Future<void> _toggleFavorite() async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Inicia sesión para guardar recetas')),
+      );
+      return;
+    }
+
+    setState(() => _isFavorite = !_isFavorite);
+
+    final ref = FirebaseFirestore.instance
+        .collection('userFavorites')
+        .doc(user.uid)
+        .collection('favorites')
+        .doc(widget.recipeId);
+
+    try {
+      if (_isFavorite) {
+        await ref.set({
+          'recipeId': widget.recipeId,
+          'savedServings': widget.currentServings,
+          'savedDiet': widget.currentDiet,
+          'savedAt': FieldValue.serverTimestamp(),
+        });
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+                content: Text('❤️ Receta guardada en favoritos'),
+                duration: Duration(seconds: 1)),
+          );
+        }
+      } else {
+        await ref.delete();
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+                content: Text('💔 Receta eliminada de favoritos'),
+                duration: Duration(seconds: 1)),
+          );
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() => _isFavorite = !_isFavorite);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error: $e')),
+        );
+      }
+    }
+  }
+
   // --- LÓGICA MEJORADA DE PARSEO ---
   List<Widget> _parseContent(String content) {
-    final List<Widget> widgets = [];
-    final lines = content.split('\n');
+    // ⭐️ TRUCO NUEVO: Pre-formatear el texto
+    // Buscamos números escondidos (ej: "mezclar. 2. cocinar") y les metemos un ENTER antes.
+    // Regex: Busca un espacio seguido de un dígito y un punto, que NO esté al inicio de la línea.
+    String formattedContent = content.replaceAllMapped(
+      RegExp(r'(?<!^)(\s+)(\d+\.)'),
+      (match) => '\n${match.group(2)}',
+    );
 
-    // Palabras clave que activan las cajas verdes
+    final List<Widget> widgets = [];
+    final lines = formattedContent.split('\n');
+
     final List<String> headerKeywords = [
       'INGREDIENTES',
       'PASOS',
       'PREPARACIÓN',
       'INSTRUCCIONES',
-      'DESCRIPCIÓN' // Agregado Descripción
+      'DESCRIPCIÓN'
     ];
 
     for (var line in lines) {
       String trimmed = line.trim();
       if (trimmed.isEmpty) continue;
 
-      // Limpieza básica
       trimmed = trimmed.replaceAll('**', '');
 
       bool isHeader = false;
       String headerText = "";
       String remainingText = "";
 
-      // 1. Verificar si la línea EMPIEZA con una palabra clave
       for (final keyword in headerKeywords) {
         if (trimmed.toUpperCase().startsWith(keyword)) {
           isHeader = true;
-
-          // Separar el título del contenido (ej: "DESCRIPCIÓN: Hola..." -> "DESCRIPCIÓN" y "Hola...")
-          // Buscamos los dos puntos o el final de la palabra clave
           int splitIndex = trimmed.indexOf(':');
 
           if (splitIndex != -1) {
             headerText = trimmed.substring(0, splitIndex).trim();
             remainingText = trimmed.substring(splitIndex + 1).trim();
           } else {
-            // Si no hay dos puntos, asumimos que toda la línea es el título (ej: "PASOS")
-            // Pero si es muy larga, probablemente no sea solo un título
             if (trimmed.length < 30) {
               headerText = trimmed;
             } else {
-              // Si es muy largo, no lo tratamos como header para evitar cajas verdes gigantes
               isHeader = false;
             }
           }
@@ -75,31 +163,26 @@ class RecipeDetailScreen extends StatelessWidget {
       }
 
       if (isHeader) {
-        // --- A. ES UN ENCABEZADO (Caja Verde) ---
         widgets.add(const SizedBox(height: 24));
         widgets.add(_buildSectionHeader(headerText));
         widgets.add(const SizedBox(height: 12));
-
-        // Si había texto en la misma línea (ej: Descripción), lo ponemos abajo normal
         if (remainingText.isNotEmpty) {
           widgets.add(_buildNormalText(remainingText));
         }
-      } else if (trimmed.startsWith('*') ||
-          RegExp(r'^\d+\.').hasMatch(trimmed)) {
-        // --- B. ES UNA LISTA (Ingrediente o Paso) ---
-        // Limpiamos el asterisco inicial si existe
+      }
+      // Detectamos si es una lista (Asterisco o Número "1.")
+      else if (trimmed.startsWith('*') || RegExp(r'^\d+\.').hasMatch(trimmed)) {
+        // Limpiamos el asterisco si existe, pero dejamos el número si es un paso
         String cleanLine =
             trimmed.startsWith('*') ? trimmed.substring(1).trim() : trimmed;
         widgets.add(_buildListItem(cleanLine));
       } else {
-        // --- C. TEXTO NORMAL ---
         widgets.add(_buildNormalText(trimmed));
       }
     }
     return widgets;
   }
 
-  // Widget auxiliar para la Caja Verde (Encabezado)
   Widget _buildSectionHeader(String text) {
     return Container(
       padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 12),
@@ -128,7 +211,6 @@ class RecipeDetailScreen extends StatelessWidget {
     );
   }
 
-  // Widget auxiliar para Items de lista (con puntito verde)
   Widget _buildListItem(String text) {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 6.0),
@@ -137,6 +219,7 @@ class RecipeDetailScreen extends StatelessWidget {
         children: [
           const Padding(
             padding: EdgeInsets.only(top: 6.0),
+            // El puntito verde que querías
             child: Icon(Icons.circle, size: 8, color: Color(0xFF4CAF50)),
           ),
           const SizedBox(width: 12),
@@ -152,7 +235,6 @@ class RecipeDetailScreen extends StatelessWidget {
     );
   }
 
-  // Widget auxiliar para texto normal
   Widget _buildNormalText(String text) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 8.0),
@@ -164,41 +246,9 @@ class RecipeDetailScreen extends StatelessWidget {
     );
   }
 
-  Future<void> _saveFavoriteRecipe(BuildContext context) async {
-    final user = FirebaseAuth.instance.currentUser;
-    if (user == null) return;
-
-    try {
-      await FirebaseFirestore.instance
-          .collection('userFavorites')
-          .doc(user.uid)
-          .collection('favorites')
-          .doc(recipeId)
-          .set({
-        'recipeId': recipeId,
-        'savedServings': currentServings,
-        'savedDiet': currentDiet,
-        'savedAt': FieldValue.serverTimestamp(),
-      });
-
-      if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('✅ Receta guardada en favoritos')),
-        );
-        Navigator.pop(context);
-      }
-    } catch (e) {
-      if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error al guardar: $e')),
-        );
-      }
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
-    String displayTitle = recipeTitle.replaceAll('**', '').trim();
+    String displayTitle = widget.recipeTitle.replaceAll('**', '').trim();
     if (displayTitle.endsWith(':')) {
       displayTitle = displayTitle.substring(0, displayTitle.length - 1);
     }
@@ -207,15 +257,35 @@ class RecipeDetailScreen extends StatelessWidget {
       backgroundColor: Colors.white,
       body: CustomScrollView(
         slivers: [
-          // --- CABECERA ---
           SliverAppBar(
             expandedHeight: 250.0,
             floating: false,
             pinned: true,
             backgroundColor: const Color(0xFF4CAF50),
             iconTheme: const IconThemeData(color: Colors.white),
+            actions: [
+              _isLoading
+                  ? const Padding(
+                      padding: EdgeInsets.only(right: 16.0),
+                      child: SizedBox(
+                        width: 20,
+                        height: 20,
+                        child: CircularProgressIndicator(
+                          color: Colors.white,
+                          strokeWidth: 2,
+                        ),
+                      ),
+                    )
+                  : IconButton(
+                      icon: Icon(
+                        _isFavorite ? Icons.favorite : Icons.favorite_border,
+                        color: _isFavorite ? Colors.red : Colors.white,
+                        size: 28,
+                      ),
+                      onPressed: _toggleFavorite,
+                    ),
+            ],
             flexibleSpace: FlexibleSpaceBar(
-              // ⭐️ CORRECCIÓN 1: Aumentamos el padding izquierdo a 56 para librar la flecha
               titlePadding:
                   const EdgeInsets.only(left: 56, bottom: 16, right: 16),
               centerTitle: false,
@@ -238,9 +308,9 @@ class RecipeDetailScreen extends StatelessWidget {
               background: Stack(
                 fit: StackFit.expand,
                 children: [
-                  imageUrl != null && imageUrl!.isNotEmpty
+                  widget.imageUrl != null && widget.imageUrl!.isNotEmpty
                       ? CachedNetworkImage(
-                          imageUrl: imageUrl!,
+                          imageUrl: widget.imageUrl!,
                           fit: BoxFit.cover,
                           placeholder: (context, url) =>
                               Container(color: Colors.grey[300]),
@@ -269,8 +339,6 @@ class RecipeDetailScreen extends StatelessWidget {
               ),
             ),
           ),
-
-          // --- CONTENIDO ---
           SliverToBoxAdapter(
             child: Padding(
               padding: const EdgeInsets.all(20.0),
@@ -285,44 +353,21 @@ class RecipeDetailScreen extends StatelessWidget {
                         color: Color(0xFF2E3A59)),
                   ),
                   const SizedBox(height: 12),
-
                   Wrap(
                     spacing: 10,
                     runSpacing: 10,
                     children: [
-                      _buildInfoChip(Icons.people, '$currentServings raciones'),
-                      _buildInfoChip(Icons.restaurant_menu, currentDiet),
+                      _buildInfoChip(
+                          Icons.people, '${widget.currentServings} raciones'),
+                      _buildInfoChip(Icons.restaurant_menu, widget.currentDiet),
                     ],
                   ),
                   const Divider(height: 30),
 
-                  // Contenido Inteligente
-                  ..._parseContent(recipeContent),
+                  // Contenido con el parseo inteligente
+                  ..._parseContent(widget.recipeContent),
 
                   const SizedBox(height: 40),
-
-                  SizedBox(
-                    width: double.infinity,
-                    height: 55,
-                    child: ElevatedButton.icon(
-                      onPressed: () => _saveFavoriteRecipe(context),
-                      icon: const Icon(Icons.favorite, color: Colors.white),
-                      label: const Text(
-                        'Guardar Receta',
-                        style: TextStyle(
-                            fontSize: 18, fontWeight: FontWeight.bold),
-                      ),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: const Color(0xFF4CAF50),
-                        foregroundColor: Colors.white,
-                        elevation: 4,
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(15),
-                        ),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 30),
                 ],
               ),
             ),

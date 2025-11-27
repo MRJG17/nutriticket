@@ -10,13 +10,12 @@ import 'package:nutriticket/recipe_detail_screen.dart';
 import 'package:nutriticket/recipe.dart';
 import 'package:nutriticket/custom_loader.dart';
 import 'package:cached_network_image/cached_network_image.dart';
-import 'package:nutriticket/secrets.dart'; // Asegúrate de tener tu API Key aquí
+import 'package:nutriticket/secrets.dart';
 
 // --- 1. MODELOS DE DATOS ---
 
-// Clase para Recetas Únicas (Base de Datos)
 class SuggestedRecipeDetail {
-  final Recipe recipe; 
+  final Recipe recipe;
   final List<String> matchingIngredients;
 
   SuggestedRecipeDetail({
@@ -25,12 +24,11 @@ class SuggestedRecipeDetail {
   });
 }
 
-// ⭐️ NUEVO: Clase para una tarjeta de comida individual en el plan semanal
 class MealCardData {
-  final String title; // Ej: Tostada con aguacate
-  final String type;  // Ej: Desayuno
-  final String imageUrl; 
-  
+  final String title;
+  final String type;
+  final String imageUrl;
+
   MealCardData({
     required this.title,
     required this.type,
@@ -38,7 +36,6 @@ class MealCardData {
   });
 }
 
-// ⭐️ NUEVO: Clase para el plan de un día completo
 class DailyPlanData {
   final String day;
   final List<MealCardData> meals;
@@ -58,19 +55,21 @@ class IANutricionalScreen extends StatefulWidget {
 }
 
 class _IANutricionalScreenState extends State<IANutricionalScreen> {
-
   // Estado
   List<SuggestedRecipeDetail> _suggestedRecipes = [];
   List<Recipe> _allRecipesFromFirestore = [];
-  
-  // ⭐️ NUEVO: Variable para guardar el texto crudo del plan semanal
-  String _weeklyPlanText = ""; 
+
+  // Texto del plan semanal
+  String _weeklyPlanText = "";
 
   bool _isLoading = true;
   String? _errorMessage;
 
+  // ✅ CONTROL DE VISTA (GRID VS LISTA)
+  bool _isGridView = true;
+
   // API
-  final String apiKey = googleApiKey; // Desde secrets.dart
+  final String apiKey = googleApiKey;
   final String apiUrl =
       "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent";
 
@@ -79,7 +78,12 @@ class _IANutricionalScreenState extends State<IANutricionalScreen> {
   String _menuType = 'Receta Única';
 
   final List<String> _masterDietOptions = [
-    'Ninguna', 'Vegetariana', 'Vegana', 'Sin Gluten', 'Keto', 'Paleo',
+    'Ninguna',
+    'Vegetariana',
+    'Vegana',
+    'Sin Gluten',
+    'Keto',
+    'Paleo',
   ];
 
   String _currentDiet = 'Ninguna';
@@ -90,39 +94,42 @@ class _IANutricionalScreenState extends State<IANutricionalScreen> {
     super.initState();
     _loadAllDataAndGenerate();
   }
-  
-  // --- LÓGICA DE PARSEO DEL PLAN SEMANAL (NUEVO) ---
+
+  // --- LÓGICA DE PARSEO DEL PLAN SEMANAL ---
   List<DailyPlanData> _parseWeeklyPlan(String generatedText) {
     final List<DailyPlanData> weeklyPlan = [];
-    
-    // 1. Dividir por días
-    final dayRegex = RegExp(r'^(Lunes|Martes|Miércoles|Jueves|Viernes|Sábado|Domingo):', multiLine: true);
+
+    final dayRegex = RegExp(
+        r'^(Lunes|Martes|Miércoles|Jueves|Viernes|Sábado|Domingo):',
+        multiLine: true);
     final rawDays = generatedText.split(dayRegex);
     final matches = dayRegex.allMatches(generatedText).toList();
 
-    // Ajuste por si el split deja un elemento vacío al inicio
     int contentIndex = rawDays.isNotEmpty && rawDays[0].trim().isEmpty ? 1 : 0;
 
     for (var i = 0; i < matches.length; i++) {
       if (contentIndex >= rawDays.length) break;
 
-      final dayName = generatedText.substring(matches[i].start, matches[i].end).replaceAll(':', '');
+      final dayName = generatedText
+          .substring(matches[i].start, matches[i].end)
+          .replaceAll(':', '');
       final dayContent = rawDays[contentIndex++];
       final List<MealCardData> meals = [];
 
-      // 2. Extraer comidas
-      final mealRegex = RegExp(r'(Desayuno|Comida|Cena):\s*(.*?)(?=\n(Desayuno|Comida|Cena):|\n\s*$|$)', multiLine: true, dotAll: true);
+      final mealRegex = RegExp(
+          r'(Desayuno|Comida|Cena):\s*(.*?)(?=\n(Desayuno|Comida|Cena):|\n\s*$|$)',
+          multiLine: true,
+          dotAll: true);
       final mealMatches = mealRegex.allMatches(dayContent);
 
       for (var match in mealMatches) {
         final type = match.group(1) ?? 'Comida';
         final title = match.group(2)?.trim() ?? 'Sugerencia del chef';
 
-        // 3. Asignar imágenes genéricas (Placeholders)
-        String imgUrl = "https://i.imgur.com/B9P9x6U.png"; // Default (Plato)
-        if (type == 'Desayuno') imgUrl = "https://i.imgur.com/vHq0L59.png"; // Tostada/Café
-        if (type == 'Comida') imgUrl = "https://i.imgur.com/Qa8f7.jpeg"; // Ensalada/Bowl
-        
+        String imgUrl = "https://i.imgur.com/B9P9x6U.png";
+        if (type == 'Desayuno') imgUrl = "https://i.imgur.com/vHq0L59.png";
+        if (type == 'Comida') imgUrl = "https://i.imgur.com/Qa8f7.jpeg";
+
         meals.add(MealCardData(title: title, type: type, imageUrl: imgUrl));
       }
 
@@ -133,18 +140,19 @@ class _IANutricionalScreenState extends State<IANutricionalScreen> {
     return weeklyPlan;
   }
 
-  // --- LÓGICA LOCAL (SIN IA) ---
+  // --- LÓGICA LOCAL ---
   String _adaptRecipeContent(Recipe recipe, int targetServings) {
     final double scaleFactor = targetServings / recipe.baseServings;
     final String ingredientsAdapted = recipe.ingredients.map((i) {
       final double newQuantity = i.quantity * scaleFactor;
-      final String quantityString = newQuantity.toStringAsFixed(newQuantity.truncateToDouble() == newQuantity ? 0 : 1);
+      final String quantityString = newQuantity.toStringAsFixed(
+          newQuantity.truncateToDouble() == newQuantity ? 0 : 1);
       return '* ${i.name}: $quantityString ${i.unit}';
     }).join('\n');
 
     return '${recipe.title}\nDESCRIPCIÓN: ${recipe.description}\n\nINGREDIENTES ADAPTADOS ($targetServings porciones):\n$ingredientsAdapted\n\nPASOS:\n${recipe.instructions}';
   }
-  
+
   // --- CARGA DE DATOS ---
   Future<void> _loadAllDataAndGenerate() async {
     setState(() => _isLoading = true);
@@ -157,7 +165,10 @@ class _IANutricionalScreenState extends State<IANutricionalScreen> {
     final user = FirebaseAuth.instance.currentUser;
     if (user != null) {
       try {
-        final userDoc = await FirebaseFirestore.instance.collection('users').doc(user.uid).get();
+        final userDoc = await FirebaseFirestore.instance
+            .collection('users')
+            .doc(user.uid)
+            .get();
         if (userDoc.exists && userDoc.data() != null) {
           final data = userDoc.data()!;
           if (mounted) {
@@ -167,13 +178,14 @@ class _IANutricionalScreenState extends State<IANutricionalScreen> {
             });
           }
         }
-      } catch (e) { }
+      } catch (e) {}
     }
   }
 
   Future<void> _loadRecipesFromFirestore() async {
     try {
-      final snapshot = await FirebaseFirestore.instance.collection('recipes').get();
+      final snapshot =
+          await FirebaseFirestore.instance.collection('recipes').get();
       final List<Recipe> loadedRecipes = snapshot.docs.map((doc) {
         return Recipe.fromMap(doc.data(), doc.id);
       }).toList();
@@ -189,14 +201,14 @@ class _IANutricionalScreenState extends State<IANutricionalScreen> {
   }
 
   // --- GENERACIÓN ---
-  
-  // Receta Única: Filtrado Local
-  Future<void> _generateSingleRecipes(List<ScoredRecipe> candidateRecipesInfo, String availableItemsString) async {
+
+  Future<void> _generateSingleRecipes(List<ScoredRecipe> candidateRecipesInfo,
+      String availableItemsString) async {
     for (final scoredRecipe in candidateRecipesInfo) {
       if (mounted) {
         _suggestedRecipes.add(SuggestedRecipeDetail(
           recipe: scoredRecipe.recipe,
-          matchingIngredients: scoredRecipe.matches, 
+          matchingIngredients: scoredRecipe.matches,
         ));
       }
     }
@@ -205,8 +217,8 @@ class _IANutricionalScreenState extends State<IANutricionalScreen> {
     }
   }
 
-  // Plan Semanal: Llamada a Gemini
-  Future<String?> _generateWeeklyPlanText(List<ScoredRecipe> candidateRecipesInfo) async {
+  Future<String?> _generateWeeklyPlanText(
+      List<ScoredRecipe> candidateRecipesInfo) async {
     final List<Map<String, dynamic>> selectedRecipes =
         candidateRecipesInfo.map((s) => s.recipe.toJson()).toList();
     final selectedRecipesJson = jsonEncode(selectedRecipes);
@@ -230,7 +242,14 @@ class _IANutricionalScreenState extends State<IANutricionalScreen> {
 
     try {
       final payload = {
-        "contents": [{"role": "user", "parts": [{"text": prompt}]}],
+        "contents": [
+          {
+            "role": "user",
+            "parts": [
+              {"text": prompt}
+            ]
+          }
+        ],
         "generationConfig": {"temperature": 0.7},
       };
 
@@ -241,7 +260,8 @@ class _IANutricionalScreenState extends State<IANutricionalScreen> {
 
       if (response.statusCode == 200) {
         final jsonResponse = jsonDecode(utf8.decode(response.bodyBytes));
-        return jsonResponse['candidates'][0]['content']['parts'][0]['text'] as String;
+        return jsonResponse['candidates'][0]['content']['parts'][0]['text']
+            as String;
       } else {
         throw Exception('Error API: ${response.statusCode}');
       }
@@ -251,13 +271,12 @@ class _IANutricionalScreenState extends State<IANutricionalScreen> {
     }
   }
 
-  // Controlador Principal de Generación
   Future<void> _generateRecipes() async {
     setState(() {
       _isLoading = true;
       _errorMessage = null;
       _suggestedRecipes = [];
-      _weeklyPlanText = ""; // Limpiar plan anterior
+      _weeklyPlanText = "";
     });
 
     if (_allRecipesFromFirestore.isEmpty) {
@@ -265,26 +284,32 @@ class _IANutricionalScreenState extends State<IANutricionalScreen> {
       return;
     }
 
-    final candidateRecipesInfo = _filterRecipes(widget.scannedItems, _currentDiet, _numServings);
-    // No bloqueamos si está vacío, dejamos que la IA sugiera algo si es Plan Semanal
-    final availableItemsString = widget.scannedItems.map((i) => '${i.item} (x${i.qty})').join(', ');
+    final candidateRecipesInfo =
+        _filterRecipes(widget.scannedItems, _currentDiet, _numServings);
+
+    final availableItemsString =
+        widget.scannedItems.map((i) => '${i.item} (x${i.qty})').join(', ');
 
     if (_menuType == 'Plan Semanal') {
       String? text = await _generateWeeklyPlanText(candidateRecipesInfo);
       if (text != null && mounted) {
         setState(() {
           _weeklyPlanText = text;
-          // Agregamos un dummy para que el builder se active
+          // Dummy para activar builder
           if (candidateRecipesInfo.isNotEmpty) {
-             _suggestedRecipes.add(SuggestedRecipeDetail(recipe: candidateRecipesInfo.first.recipe, matchingIngredients: []));
+            _suggestedRecipes.add(SuggestedRecipeDetail(
+                recipe: candidateRecipesInfo.first.recipe,
+                matchingIngredients: []));
           } else if (_allRecipesFromFirestore.isNotEmpty) {
-             _suggestedRecipes.add(SuggestedRecipeDetail(recipe: _allRecipesFromFirestore.first, matchingIngredients: []));
+            _suggestedRecipes.add(SuggestedRecipeDetail(
+                recipe: _allRecipesFromFirestore.first,
+                matchingIngredients: []));
           }
         });
       }
     } else {
       if (candidateRecipesInfo.isEmpty) {
-         setState(() {
+        setState(() {
           _isLoading = false;
           _errorMessage = 'No hay recetas coincidentes con tus ingredientes.';
         });
@@ -296,8 +321,8 @@ class _IANutricionalScreenState extends State<IANutricionalScreen> {
     setState(() => _isLoading = false);
   }
 
-  // Filtros Locales
-  List<ScoredRecipe> _filterRecipes(List<ReceiptItem> items, String diet, int servings) {
+  List<ScoredRecipe> _filterRecipes(
+      List<ReceiptItem> items, String diet, int servings) {
     final recipesToFilter = _allRecipesFromFirestore;
     final availableItems = items.map((i) => i.item.toLowerCase()).toList();
 
@@ -311,7 +336,8 @@ class _IANutricionalScreenState extends State<IANutricionalScreen> {
       final List<String> matches = [];
       for (var ingredient in recipe.ingredients) {
         final ingredientNameLower = ingredient.name.toLowerCase();
-        final hasMatch = availableItems.any((item) => item.contains(ingredientNameLower));
+        final hasMatch =
+            availableItems.any((item) => item.contains(ingredientNameLower));
         if (hasMatch) {
           score++;
           matches.add(ingredient.name);
@@ -321,11 +347,12 @@ class _IANutricionalScreenState extends State<IANutricionalScreen> {
     }).toList();
 
     scoredRecipes.sort((a, b) => b.score.compareTo(a.score));
-    // Retornamos todas las que tengan coincidencia, o al menos las top 5 para dar contexto a la IA
-    return scoredRecipes.where((s) => s.score > 0).take(5).toList();
+    // Aumentamos el límite para que el scroll tenga sentido (ej: 20 recetas)
+    return scoredRecipes.where((s) => s.score > 0).take(20).toList();
   }
 
-  Future<http.Response> _fetchWithExponentialBackoff(Uri uri, {String? body}) async {
+  Future<http.Response> _fetchWithExponentialBackoff(Uri uri,
+      {String? body}) async {
     const maxRetries = 3;
     const initialDelay = Duration(seconds: 2);
     for (int i = 0; i < maxRetries; i++) {
@@ -353,21 +380,19 @@ class _IANutricionalScreenState extends State<IANutricionalScreen> {
 
   // ================= UI =================
 
-  // ⭐️ WIDGET: Carrusel de Tarjetas para el Plan Semanal ⭐️
   Widget _buildWeeklyPlanView() {
-    // 1. Parsear el texto
     final List<DailyPlanData> weeklyPlan = _parseWeeklyPlan(_weeklyPlanText);
 
     if (weeklyPlan.isEmpty) {
       return const Center(
         child: Padding(
           padding: EdgeInsets.all(16.0),
-          child: Text("No se pudo generar el calendario. Intenta de nuevo.", style: TextStyle(color: Colors.grey)),
+          child: Text("No se pudo generar el calendario. Intenta de nuevo.",
+              style: TextStyle(color: Colors.grey)),
         ),
       );
     }
 
-    // 2. Lista Vertical de Días
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: weeklyPlan.map((dayData) {
@@ -376,19 +401,23 @@ class _IANutricionalScreenState extends State<IANutricionalScreen> {
           decoration: BoxDecoration(
             color: Colors.white,
             borderRadius: BorderRadius.circular(12),
-            boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 4)],
+            boxShadow: [
+              BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 4)
+            ],
           ),
           child: ExpansionTile(
-            initiallyExpanded: true, // Expandir por defecto para ver el carrusel
+            initiallyExpanded: true,
             shape: Border.all(color: Colors.transparent),
-            title: Text(dayData.day, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
+            title: Text(dayData.day,
+                style:
+                    const TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
             leading: const Icon(Icons.calendar_today, color: Color(0xFF4CAF50)),
             children: [
-              // 3. Carrusel Horizontal de Comidas
               SizedBox(
-                height: 220, // Altura para las tarjetas
+                height: 220,
                 child: ListView.builder(
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
                   scrollDirection: Axis.horizontal,
                   physics: const BouncingScrollPhysics(),
                   itemCount: dayData.meals.length,
@@ -405,16 +434,18 @@ class _IANutricionalScreenState extends State<IANutricionalScreen> {
     );
   }
 
-  // ⭐️ WIDGET: Tarjeta Individual de Comida (Dentro del Carrusel) ⭐️
   Widget _buildMealCard(MealCardData meal) {
     return Container(
-      width: 180, 
+      width: 180,
       margin: const EdgeInsets.only(right: 12),
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(16),
         boxShadow: [
-          BoxShadow(color: Colors.grey.withOpacity(0.2), blurRadius: 6, offset: const Offset(0, 3))
+          BoxShadow(
+              color: Colors.grey.withOpacity(0.2),
+              blurRadius: 6,
+              offset: const Offset(0, 3))
         ],
       ),
       child: ClipRRect(
@@ -422,21 +453,20 @@ class _IANutricionalScreenState extends State<IANutricionalScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Imagen
             Expanded(
               flex: 3,
               child: CachedNetworkImage(
                 imageUrl: meal.imageUrl,
                 fit: BoxFit.cover,
                 width: double.infinity,
-                placeholder: (context, url) => Container(color: Colors.grey[200]),
+                placeholder: (context, url) =>
+                    Container(color: Colors.grey[200]),
                 errorWidget: (context, url, error) => Container(
                   color: Colors.grey[200],
                   child: Icon(Icons.fastfood, color: Colors.grey[400]),
                 ),
               ),
             ),
-            // Texto
             Expanded(
               flex: 2,
               child: Padding(
@@ -476,33 +506,85 @@ class _IANutricionalScreenState extends State<IANutricionalScreen> {
     );
   }
 
-  // Widget para Lista de Recetas Únicas
+  // ⭐️ VISTA PRINCIPAL DE RECETAS (Grid vs Filas de Carruseles) ⭐️
   Widget _buildRecipeListView() {
-    // Si es Plan Semanal, usamos la nueva vista
     if (_menuType == 'Plan Semanal') {
       return _buildWeeklyPlanView();
     }
-    
-    // Si es Receta Única, scroll horizontal normal
-    return SizedBox(
-      height: 340,
-      child: ListView.builder(
-        scrollDirection: Axis.horizontal,
-        physics: const BouncingScrollPhysics(),
+
+    // 1. VISTA CUADRÍCULA (Grid Vertical)
+    if (_isGridView) {
+      return GridView.builder(
+        shrinkWrap: true,
+        physics: const NeverScrollableScrollPhysics(),
+        gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+          crossAxisCount: 2,
+          childAspectRatio: 0.75,
+          crossAxisSpacing: 12,
+          mainAxisSpacing: 12,
+        ),
         itemCount: _suggestedRecipes.length,
         itemBuilder: (context, index) {
           final item = _suggestedRecipes[index];
-          return _buildSingleRecipeCard(item);
+          return _buildGridRecipeCard(item);
         },
-      ),
-    );
+      );
+    }
+
+    // 2. VISTA "CARRUSELES APILADOS" (Chunked Carousel)
+    else {
+      // Dividimos las recetas en grupos de 5
+      final int chunkSize = 5;
+      List<List<SuggestedRecipeDetail>> recipeChunks = [];
+      for (var i = 0; i < _suggestedRecipes.length; i += chunkSize) {
+        recipeChunks.add(_suggestedRecipes.sublist(
+            i,
+            i + chunkSize > _suggestedRecipes.length
+                ? _suggestedRecipes.length
+                : i + chunkSize));
+      }
+
+      // Construimos una Columna de Carruseles
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: recipeChunks.asMap().entries.map((entry) {
+          final int rowIndex = entry.key;
+          final List<SuggestedRecipeDetail> chunk = entry.value;
+
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // Separación entre filas
+              if (rowIndex > 0) const SizedBox(height: 16),
+
+              // ⛔️ TEXTO ELIMINADO SEGÚN TU SOLICITUD
+              // El carrusel se dibuja limpio.
+
+              SizedBox(
+                height:
+                    250, // ✅ ALTURA REDUCIDA para que las tarjetas se vean más chicas
+                child: ListView.builder(
+                  scrollDirection: Axis.horizontal,
+                  physics: const BouncingScrollPhysics(),
+                  itemCount: chunk.length,
+                  itemBuilder: (context, index) {
+                    final item = chunk[index];
+                    return _buildSingleRecipeCard(item);
+                  },
+                ),
+              ),
+            ],
+          );
+        }).toList(),
+      );
+    }
   }
 
-  // Tarjeta para Receta Única
-  Widget _buildSingleRecipeCard(SuggestedRecipeDetail item) {
+  // Tarjeta: Diseño Nuevo (Vertical para Grid)
+  Widget _buildGridRecipeCard(SuggestedRecipeDetail item) {
     final Recipe recipe = item.recipe;
     final String adaptedContent = _adaptRecipeContent(recipe, _numServings);
-    
+
     return GestureDetector(
       onTap: () {
         Navigator.push(
@@ -520,65 +602,184 @@ class _IANutricionalScreenState extends State<IANutricionalScreen> {
         );
       },
       child: Container(
-        width: 260,
-        margin: const EdgeInsets.only(right: 16, bottom: 10),
         decoration: BoxDecoration(
           color: Colors.white,
-          borderRadius: BorderRadius.circular(20),
+          borderRadius: BorderRadius.circular(15),
           boxShadow: [
-            BoxShadow(color: Colors.black.withOpacity(0.08), blurRadius: 12, offset: const Offset(0, 6))
+            BoxShadow(
+                color: Colors.black.withOpacity(0.08),
+                blurRadius: 8,
+                offset: const Offset(0, 4))
           ],
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            ClipRRect(
-              borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
-              child: SizedBox(
-                height: 140,
-                width: double.infinity,
-                child: recipe.imageUrl.isNotEmpty
-                    ? CachedNetworkImage(
-                        imageUrl: recipe.imageUrl,
-                        fit: BoxFit.cover,
-                        placeholder: (context, url) => Container(color: Colors.grey[50]),
-                        errorWidget: (context, url, error) => Container(color: const Color(0xFFE8F5E9)),
-                      )
-                    : Container(
-                        color: const Color(0xFFE8F5E9),
-                        child: const Center(child: Icon(Icons.restaurant_menu, size: 50, color: Color(0xFF4CAF50))),
+            Expanded(
+              flex: 3,
+              child: ClipRRect(
+                borderRadius:
+                    const BorderRadius.vertical(top: Radius.circular(15)),
+                child: SizedBox(
+                  width: double.infinity,
+                  child: recipe.imageUrl.isNotEmpty
+                      ? CachedNetworkImage(
+                          imageUrl: recipe.imageUrl,
+                          fit: BoxFit.cover,
+                          placeholder: (context, url) =>
+                              Container(color: Colors.grey[200]),
+                          errorWidget: (context, url, error) => Container(
+                            color: const Color(0xFFE8F5E9),
+                            child: const Icon(Icons.restaurant_menu,
+                                color: Color(0xFFA5D6A7)),
+                          ),
+                        )
+                      : Container(
+                          color: const Color(0xFFE8F5E9),
+                          child: const Center(
+                              child: Icon(Icons.restaurant_menu,
+                                  size: 30, color: Color(0xFF4CAF50))),
+                        ),
+                ),
+              ),
+            ),
+            Expanded(
+              flex: 2,
+              child: Padding(
+                padding: const EdgeInsets.all(10.0),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      recipe.title,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.black87,
                       ),
-              ),
-            ),
-            Padding(
-              padding: const EdgeInsets.all(16.0),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(recipe.title, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-                  const SizedBox(height: 4),
-                  Text('$_numServings raciones • $_currentDiet', style: TextStyle(fontSize: 12, color: Colors.grey[600])),
-                  const SizedBox(height: 12),
-                  // Etiquetas de ingredientes
-                  if (item.matchingIngredients.isNotEmpty)
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-                      decoration: BoxDecoration(color: const Color(0xFFE8F5E9), borderRadius: BorderRadius.circular(12)),
-                      child: Row(children: [
-                        const Icon(Icons.check_circle_outline, size: 14, color: Color(0xFF4CAF50)),
-                        const SizedBox(width: 4),
-                        Expanded(child: Text('Tienes: ${item.matchingIngredients.take(3).join(', ')}', style: TextStyle(fontSize: 11, color: Colors.grey[800]), overflow: TextOverflow.ellipsis)),
-                      ]),
                     ),
-                ],
+                    const SizedBox(height: 4),
+                    if (item.matchingIngredients.isNotEmpty)
+                      Container(
+                        margin: const EdgeInsets.only(top: 4),
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 6, vertical: 2),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFE8F5E9),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Text(
+                          'Tienes ${item.matchingIngredients.length} ingr.',
+                          style: const TextStyle(
+                              fontSize: 10, color: Color(0xFF2E7D32)),
+                        ),
+                      ),
+                  ],
+                ),
               ),
             ),
-            const Spacer(),
-            Container(
-              width: double.infinity,
-              padding: const EdgeInsets.symmetric(vertical: 12),
-              decoration: const BoxDecoration(border: Border(top: BorderSide(color: Color(0xFFF0F0F0)))),
-              child: const Center(child: Text('Ver Receta', style: TextStyle(color: Color(0xFF4CAF50), fontWeight: FontWeight.bold))),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // Tarjeta: Diseño Ajustado (Ahora igual al Grid pero en horizontal)
+  Widget _buildSingleRecipeCard(SuggestedRecipeDetail item) {
+    final Recipe recipe = item.recipe;
+    final String adaptedContent = _adaptRecipeContent(recipe, _numServings);
+
+    return GestureDetector(
+      onTap: () {
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (context) => RecipeDetailScreen(
+              recipeContent: adaptedContent,
+              recipeTitle: recipe.title,
+              recipeId: recipe.id,
+              currentServings: _numServings,
+              currentDiet: _currentDiet,
+              imageUrl: recipe.imageUrl,
+            ),
+          ),
+        );
+      },
+      child: Container(
+        width: 170, // ✅ ANCHO REDUCIDO (Similar al Grid)
+        margin: const EdgeInsets.only(right: 12, bottom: 8),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(15),
+          boxShadow: [
+            BoxShadow(
+                color: Colors.black.withOpacity(0.08),
+                blurRadius: 8,
+                offset: const Offset(0, 4))
+          ],
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Expanded(
+              flex: 3,
+              child: ClipRRect(
+                borderRadius:
+                    const BorderRadius.vertical(top: Radius.circular(15)),
+                child: SizedBox(
+                  width: double.infinity,
+                  child: recipe.imageUrl.isNotEmpty
+                      ? CachedNetworkImage(
+                          imageUrl: recipe.imageUrl,
+                          fit: BoxFit.cover,
+                          placeholder: (context, url) =>
+                              Container(color: Colors.grey[200]),
+                          errorWidget: (context, url, error) =>
+                              Container(color: const Color(0xFFE8F5E9)),
+                        )
+                      : Container(
+                          color: const Color(0xFFE8F5E9),
+                          child: const Center(
+                              child: Icon(Icons.restaurant_menu,
+                                  size: 30, color: Color(0xFF4CAF50))),
+                        ),
+                ),
+              ),
+            ),
+            Expanded(
+              flex: 2,
+              child: Padding(
+                padding: const EdgeInsets.all(10.0),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(recipe.title,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                            fontSize: 14,
+                            fontWeight:
+                                FontWeight.bold) // ✅ Fuente ajustada a 14
+                        ),
+                    const SizedBox(height: 4),
+                    if (item.matchingIngredients.isNotEmpty)
+                      Container(
+                        margin: const EdgeInsets.only(top: 4),
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 6, vertical: 2),
+                        decoration: BoxDecoration(
+                            color: const Color(0xFFE8F5E9),
+                            borderRadius: BorderRadius.circular(8)),
+                        child: Text(
+                            'Tienes ${item.matchingIngredients.length} ingr.',
+                            style: const TextStyle(
+                                fontSize: 10, color: Color(0xFF2E7D32))),
+                      ),
+                  ],
+                ),
+              ),
             ),
           ],
         ),
@@ -589,24 +790,41 @@ class _IANutricionalScreenState extends State<IANutricionalScreen> {
   @override
   Widget build(BuildContext context) {
     if (_isLoading) {
-      return const Scaffold(body: Center(child: CircularProgressIndicator()));
+      return const Scaffold(
+          body: CustomLogoLoader(text: 'Preparando tus sugerencias...'));
     }
 
     return Scaffold(
       backgroundColor: Colors.grey[50],
       appBar: AppBar(
-        title: const Text('IA Nutricional', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+        title: const Text('IA Nutricional',
+            style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
         centerTitle: true,
         backgroundColor: const Color(0xFF4CAF50),
         iconTheme: const IconThemeData(color: Colors.white),
         elevation: 0,
+        // ✅ 2. BOTÓN DE CAMBIO DE VISTA (Solo visible si no es Plan Semanal)
+        actions: [
+          if (_menuType == 'Receta Única')
+            IconButton(
+              // Si está en Grid, muestra icono de Lista, y viceversa
+              icon: Icon(_isGridView ? Icons.view_list : Icons.grid_view),
+              tooltip: 'Cambiar Vista',
+              onPressed: () {
+                setState(() {
+                  _isGridView = !_isGridView;
+                });
+              },
+            ),
+        ],
       ),
       body: _buildBody(),
     );
   }
 
   Widget _buildBody() {
-    if (_errorMessage != null || (_suggestedRecipes.isEmpty && _weeklyPlanText.isEmpty)) {
+    if (_errorMessage != null ||
+        (_suggestedRecipes.isEmpty && _weeklyPlanText.isEmpty)) {
       return Center(
           child: Padding(
         padding: const EdgeInsets.all(32.0),
@@ -615,13 +833,16 @@ class _IANutricionalScreenState extends State<IANutricionalScreen> {
           children: [
             const Icon(Icons.error_outline, color: Colors.red, size: 60),
             const SizedBox(height: 16),
-            Text(_errorMessage ?? 'Error desconocido.', textAlign: TextAlign.center),
+            Text(_errorMessage ?? 'Error desconocido.',
+                textAlign: TextAlign.center),
             const SizedBox(height: 24),
             ElevatedButton.icon(
               onPressed: _loadAllDataAndGenerate,
               icon: const Icon(Icons.refresh, color: Colors.white),
               label: const Text('Reintentar'),
-              style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF4CAF50), foregroundColor: Colors.white),
+              style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFF4CAF50),
+                  foregroundColor: Colors.white),
             ),
           ],
         ),
@@ -641,8 +862,13 @@ class _IANutricionalScreenState extends State<IANutricionalScreen> {
               const SizedBox(width: 8),
               Expanded(
                 child: Text(
-                  _menuType == 'Plan Semanal' ? 'Tu Plan Semanal' : 'Recetas Sugeridas',
-                  style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.black87),
+                  _menuType == 'Plan Semanal'
+                      ? 'Tu Plan Semanal'
+                      : 'Recetas Sugeridas',
+                  style: const TextStyle(
+                      fontSize: 20,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.black87),
                 ),
               ),
             ],
@@ -657,71 +883,111 @@ class _IANutricionalScreenState extends State<IANutricionalScreen> {
 
   Widget _buildModificationOptions() {
     return Container(
-      padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(20), boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 10)]),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Text('Ajustar Preferencias', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-          const Divider(height: 24),
-          _buildDropdownLabel('Modo de Sugerencia'),
-          _buildStyledDropdown<String>(
-            value: _menuType,
-            items: _menuTypeOptions,
-            onChanged: (val) {
-              if (val != null) {
-                setState(() => _menuType = val);
-                _generateRecipes();
-              }
-            },
-          ),
-          const SizedBox(height: 16),
-          _buildDropdownLabel('Tipo de Dieta'),
-          _buildStyledDropdown<String>(
-            value: _currentDiet,
-            items: _masterDietOptions,
-            onChanged: (val) {
-              if (val != null) setState(() => _currentDiet = val);
-            },
-          ),
-          const SizedBox(height: 16),
-          _buildDropdownLabel('Raciones'),
-          _buildStyledDropdown<int>(
-            value: _numServings,
-            items: [1, 2, 3, 4, 5, 6, 7, 8],
-            onChanged: (val) {
-              if (val != null) setState(() => _numServings = val);
-            },
-          ),
-          const SizedBox(height: 16),
-          SizedBox(
-            width: double.infinity,
-            height: 50,
-            child: ElevatedButton(
-              onPressed: _isLoading ? null : _generateRecipes,
-              style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF4CAF50), foregroundColor: Colors.white, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))),
-              child: const Text('Re-Adaptar', style: TextStyle(fontWeight: FontWeight.bold)),
-            ),
-          ),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(20),
+        boxShadow: [
+          BoxShadow(
+              color: Colors.black.withOpacity(0.05),
+              blurRadius: 10,
+              offset: const Offset(0, 4))
         ],
+      ),
+      // Usamos ExpansionTile para ocultar/mostrar
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(20),
+        child: ExpansionTile(
+          shape: Border.all(color: Colors.transparent),
+          collapsedShape: Border.all(color: Colors.transparent),
+          tilePadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+          title: const Text(
+            'Ajustar Preferencias',
+            style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+          ),
+          leading: const Icon(Icons.tune, color: Color(0xFF4CAF50)),
+          childrenPadding:
+              const EdgeInsets.only(left: 20, right: 20, bottom: 20),
+          children: [
+            _buildDropdownLabel('Modo de Sugerencia'),
+            _buildStyledDropdown<String>(
+              value: _menuType,
+              items: _menuTypeOptions,
+              onChanged: (val) {
+                if (val != null) {
+                  setState(() => _menuType = val);
+                  _generateRecipes();
+                }
+              },
+            ),
+            const SizedBox(height: 16),
+            _buildDropdownLabel('Tipo de Dieta'),
+            _buildStyledDropdown<String>(
+              value: _currentDiet,
+              items: _masterDietOptions,
+              onChanged: (val) {
+                if (val != null) setState(() => _currentDiet = val);
+              },
+            ),
+            const SizedBox(height: 16),
+            _buildDropdownLabel('Raciones'),
+            _buildStyledDropdown<int>(
+              value: _numServings,
+              items: [1, 2, 3, 4, 5, 6, 7, 8],
+              onChanged: (val) {
+                if (val != null) setState(() => _numServings = val);
+              },
+            ),
+            const SizedBox(height: 16),
+            SizedBox(
+              width: double.infinity,
+              height: 50,
+              child: ElevatedButton(
+                onPressed: _isLoading ? null : _generateRecipes,
+                style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF4CAF50),
+                    foregroundColor: Colors.white,
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12))),
+                child: const Text('Re-Adaptar',
+                    style: TextStyle(fontWeight: FontWeight.bold)),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
 
   Widget _buildDropdownLabel(String text) {
-    return Padding(padding: const EdgeInsets.only(bottom: 6), child: Text(text, style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Colors.grey[600])));
+    return Padding(
+        padding: const EdgeInsets.only(bottom: 6),
+        child: Text(text,
+            style: TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+                color: Colors.grey[600])));
   }
 
-  Widget _buildStyledDropdown<T>({required T value, required List<T> items, required ValueChanged<T?> onChanged}) {
+  Widget _buildStyledDropdown<T>(
+      {required T value,
+      required List<T> items,
+      required ValueChanged<T?> onChanged}) {
     return DropdownButtonFormField<T>(
       value: value,
-      items: items.map((item) => DropdownMenuItem(value: item, child: Text('$item', style: const TextStyle(fontSize: 14)))).toList(),
+      items: items
+          .map((item) => DropdownMenuItem(
+              value: item,
+              child: Text('$item', style: const TextStyle(fontSize: 14))))
+          .toList(),
       onChanged: onChanged,
       decoration: InputDecoration(
-        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        contentPadding:
+            const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
         filled: true,
         fillColor: Colors.grey[50],
-        border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
+        border: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(12),
+            borderSide: BorderSide.none),
       ),
     );
   }
